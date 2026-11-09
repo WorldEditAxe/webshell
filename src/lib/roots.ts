@@ -18,7 +18,7 @@ export interface Root {
 
 const local = (file: string) => new URL(`roots/${file}`, location.href).href;
 export const BUILTIN: Root[] = [
-  { id: "ubuntu-demo", name: "Ubuntu 26.04 LTS", note: "webshell", icon: "ubuntu", disk: "ubuntu-26.04-v3", builtin: true, demo: true,
+  { id: "ubuntu-demo", name: "Ubuntu 26.04 LTS", note: "webshell", icon: "ubuntu", disk: "ubuntu-26.04-v4", builtin: true, demo: true,
     source: { kind: "ffs", url: local("ubuntu-26.04-x86_64.ffs/") } },
   { id: "ubuntu", name: "Ubuntu 26.04 LTS", note: "plain", icon: "ubuntu", disk: "ubuntu-26.04-plain", builtin: true,
     source: { kind: "ffs", url: local("ubuntu-26.04-plain.ffs/") } },

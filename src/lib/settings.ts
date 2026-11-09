@@ -6,6 +6,8 @@ export interface Launch {
   processMemory: number | null;
   /** The disk root's metadata kept in the kernel's memory, MiB; null: Nanite's default (16). */
   dcache: number | null;
+  /** Nanite's cache of disk blocks in the page's memory, MiB (Nanite's own default is 64). */
+  diskCache: number;
   /** The virtual screen (/dev/fb0), pixels; null: the monitor tab's size when the machine starts. */
   screenWidth: number | null;
   screenHeight: number | null;
@@ -30,7 +32,7 @@ export const TERMINAL_KEYS = ["fontSize", "lineHeight", "cursorStyle", "cursorBl
 export type TerminalOptions = Pick<Launch, (typeof TERMINAL_KEYS)[number]>;
 
 export const DEFAULTS: Launch = {
-  memory: 512, processMemory: null, dcache: null, screenWidth: null, screenHeight: null,
+  memory: 512, processMemory: null, dcache: null, diskCache: 16, screenWidth: null, screenHeight: null,
   wisp: "", pkg: "https://packages.sparkpowered.org",
   fontSize: 13, lineHeight: 1.12, cursorStyle: "bar", cursorBlink: true, scrollback: 10000, ligatures: true, bell: "thock", theme: "sakura", mouse: "relative",
 };

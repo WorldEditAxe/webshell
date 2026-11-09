@@ -148,12 +148,43 @@ class ReconnectingWebSocket {
 }
 ReconnectingWebSocket.CONNECTING = 0; ReconnectingWebSocket.OPEN = 1; ReconnectingWebSocket.CLOSING = 2; ReconnectingWebSocket.CLOSED = 3;
 globalThis.WebSocket = ReconnectingWebSocket;
+
+// Memory accounting: every WebAssembly memory and module Nanite makes in this worker, for { op: "mem" } (machine.ts memReport).
+const W = WebAssembly, mems = new Set(), mods = [];
+const RealMemory = W.Memory;
+W.Memory = function (d) { const m = new RealMemory(d); mems.add(new WeakRef(m)); return m; };
+W.Memory.prototype = RealMemory.prototype;
+const size = (b) => b?.byteLength ?? b?.buffer?.byteLength ?? 0;
+const RealModule = W.Module, RealCompile = W.compile, RealInst = W.instantiate, RealStream = W.compileStreaming, RealInstStream = W.instantiateStreaming;
+W.Module = function (b, o) { mods.push(size(b)); return new RealModule(b, o); }; W.Module.prototype = RealModule.prototype;
+Object.assign(W.Module, { imports: RealModule.imports, exports: RealModule.exports, customSections: RealModule.customSections });
+W.compile = (b, o) => { mods.push(size(b)); return RealCompile(b, o); };
+const exported = (inst) => { for (const v of Object.values(inst.exports)) if (v instanceof RealMemory) mems.add(new WeakRef(v)); return inst; };
+W.instantiate = (b, i, o) => { if (!(b instanceof RealModule)) mods.push(size(b));
+  return RealInst(b, i, o).then((r) => { exported(r.instance ?? r); return r; }); };
+const RealInstance = W.Instance;
+W.Instance = function (m, i) { return exported(new RealInstance(m, i)); }; W.Instance.prototype = RealInstance.prototype;
+self.addEventListener("message", (e) => {
+  if (e.data?.op !== "mem") return;
+  e.stopImmediatePropagation();
+  const live = [...mems].map((r) => r.deref()).filter(Boolean).map((m) => m.buffer.byteLength).sort((a, b) => b - a);
+  self.postMessage({ ev: "mem", memories: live, modules: mods.length, moduleBytes: mods.reduce((a, b) => a + b, 0) });
+});
 `;
 const blobUrl = (code: string) => URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
 let workerUrl: string | null = null;
 /** Nanite's worker, behind the reconnecting WebSocket (imports run in order: the WebSocket first, then Nanite's worker). */
 function naniteWorker(mod: NaniteModule): string {
   return (workerUrl ??= blobUrl(`import ${JSON.stringify(blobUrl(WISP_RECONNECT))};\nimport ${JSON.stringify(mod.embeddedWorkerUrl())};\n`));
+}
+
+/** What Nanite's worker holds: its WebAssembly memories (bytes each, largest first) and the modules it compiled. */
+export function memReport(nv: Nanite): Promise<{ memories: number[]; modules: number; moduleBytes: number }> {
+  return new Promise((resolve) => {
+    const w = nv.worker as unknown as Worker;
+    const on = (e: MessageEvent) => { if (e.data?.ev === "mem") { w.removeEventListener("message", on); resolve(e.data); } };
+    w.addEventListener("message", on); w.postMessage({ op: "mem" });
+  });
 }
 
 export const loadNanite = (pkg: string): Promise<NaniteModule> => import(/* @vite-ignore */ `${pkg}/lib/nanitevisor/nanite.js`);
@@ -166,6 +197,7 @@ export function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen
     devices: { fb: screen, sound: false, gpu: false },
     memoryLimit: l.memory * MiB, processMemoryLimit: (l.processMemory ?? Math.min(l.memory, 256)) * MiB,
     ...(l.dcache != null ? { dcacheBytes: l.dcache * MiB } : {}),
+    cacheBytes: (l.diskCache ?? 16) * MiB,   // Nanite's default is 64 MiB of the page's memory, outside the machine's memory cap
     rootName: disk, ...hooks,
   });
 }
