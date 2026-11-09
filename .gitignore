@@ -10,6 +10,10 @@ public/roots/*.ffs/
 public/roots/*.ffs.part/
 cache/
 
+# The Preview tabs' proxy, copied from node_modules (tools/vendor-proxy.mjs); nanite-transport.mjs is ours
+public/proxy/*
+!public/proxy/nanite-transport.mjs
+
 # VS Code for the web (tools/get-vscode-web.sh)
 public/vscode/web/
 

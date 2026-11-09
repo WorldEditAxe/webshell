@@ -35,7 +35,7 @@
     const w = num(f.screenWidth), h = num(f.screenHeight);
     onapply({
       ...f,
-      memory: num(f.memory) ?? DEFAULTS.memory, processMemory: num(f.processMemory), dcache: num(f.dcache),
+      memory: num(f.memory) ?? DEFAULTS.memory, processMemory: num(f.processMemory), dcache: num(f.dcache), diskCache: num(f.diskCache) ?? DEFAULTS.diskCache,
       ...(w && h ? { screenWidth: w, screenHeight: h } : { screenWidth: null, screenHeight: null }),
       wisp: f.wisp.trim(), pkg: (f.pkg.trim() || DEFAULTS.pkg).replace(/\/$/, ""),
       fontSize: num(f.fontSize) ?? DEFAULTS.fontSize, lineHeight: num(f.lineHeight) ?? DEFAULTS.lineHeight, scrollback: num(f.scrollback) ?? DEFAULTS.scrollback,
@@ -132,7 +132,11 @@
             <span class={lbl}><Database size={15} />Metadata</span>
             <input class={field} type="number" min="0" step="4" placeholder="16" bind:value={f.dcache} /><span class={unit}>MiB</span>
           </div>
-          <div class={row} title="The monitor's /dev/fb0. Empty: the monitor tab's size at start.">
+          <div class={row} title="Disk blocks Nanite keeps in this page's memory (outside the machine's memory). Nanite's own default: 64.">
+            <span class={lbl}><HardDrive size={15} />Disk cache</span>
+            <input class={field} type="number" min="0" step="8" required bind:value={f.diskCache} /><span class={unit}>MiB</span>
+          </div>
+          <div class={row} title="The display's /dev/fb0. Empty: the Display tab's size at start.">
             <span class={lbl}><Monitor size={15} />Screen</span>
             <input class={field} type="number" min="320" step="8" placeholder="auto" aria-label="Width" bind:value={f.screenWidth} />
             <span class="text-muted">×</span>

@@ -6,8 +6,9 @@
 //   VS Code (vscode/web/)         stale-while-revalidate: what VS Code has loaded once, it loads offline
 //   our VS Code files (vscode/)   network first (3 s): the bootstrap and the nanite extension
 //   the page itself (navigation)  network first (3 s), the cached page offline
+//   preview/...                   not cached: Preview tabs, through Scramjet (below)
 // Not cached: the Docker builder's status, the Wisp router, the VS Code marketplace (they need the network anyway).
-const VERSION = "v3";
+const VERSION = "v8";
 const SHELL = `nanite-shell-${VERSION}`, RUNTIME = "nanite-runtime", ROOTS = "nanite-roots";
 const BASE = new URL("./", self.location).href;
 const NANITE = "https://packages.sparkpowered.org/lib/nanitevisor/";
@@ -59,22 +60,82 @@ async function staleWhileRevalidate(req, cacheName, e) {
   return update;
 }
 
+// ---- Preview tabs (src/lib/PreviewView.svelte, src/lib/preview.ts): Scramjet ----------------------------------------------
+// BASE/preview/... is Scramjet's prefix: it rewrites the pages it serves there and fetches through bare-mux, whose transport
+// (proxy/nanite-transport.mjs) sends localhost to the machine and the rest of the web over Wisp. Its config (the prefix, set by
+// the page's ScramjetController) is in IndexedDB.
+importScripts("proxy/scramjet.all.js");
+const { ScramjetServiceWorker } = $scramjetLoadWorker();
+// Made at the first preview request, not here: its constructor opens Scramjet's IndexedDB without creating the stores, and a
+// database opened that way first stays without them (the page's ScramjetController creates them, before any preview).
+let scramjet = null;
+const PREVIEW_PATH = new URL("preview/", BASE).pathname;
+
+/** A browser-style error page (light, plain), with a Reload button, instead of Scramjet's stack trace. */
+function errorPage(site, line, code) {
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>${site}</title>
+<style>body{margin:0;font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#202124;background:#fff}
+main{max-width:600px;margin:14vh auto 0;padding:0 24px}svg{width:72px;height:72px;margin-bottom:28px;fill:#9aa0a6}
+h1{font-size:24px;font-weight:500;margin:0 0 14px}p{margin:0 0 8px;color:#5f6368}code{font-size:12px;color:#5f6368;letter-spacing:.02em}
+button{margin-top:34px;padding:9px 24px;border:0;border-radius:20px;background:#1a73e8;color:#fff;font:500 14px system-ui,sans-serif;cursor:pointer}
+button:hover{background:#1765cc}</style>
+<main><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 14H4V8h16v10zM6 10h2v2H6zm0 4h8v2H6zm4-4h8v2h-8z"/></svg>
+<h1>This site can’t be reached</h1><p><b>${site}</b>${line}</p><code>${code}</code><br><button onclick="location.reload()">Reload</button></main></html>`;
+  return new Response(html, { status: 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+/** Chrome's wording for a failed connection, from the error's message. */
+function netError(message) {
+  if (/refused|not running/i.test(message)) return [" refused to connect.", "ERR_CONNECTION_REFUSED"];
+  if (/time ?out|timed out/i.test(message)) return [" took too long to respond.", "ERR_CONNECTION_TIMED_OUT"];
+  if (/resolve host|name.*resolv|ENOTFOUND/i.test(message)) return ["’s server IP address could not be found.", "ERR_NAME_NOT_RESOLVED"];
+  if (/SSL|TLS|certificate/i.test(message)) return [" sent an invalid response.", "ERR_SSL_PROTOCOL_ERROR"];
+  if (/reset|closed/i.test(message)) return [" unexpectedly closed the connection.", "ERR_CONNECTION_CLOSED"];
+  if (/not an HTTP|EPROTO/i.test(message)) return [" sent an invalid response.", "ERR_INVALID_HTTP_RESPONSE"];
+  if (/wisp|websocket/i.test(message)) return [" can't be reached: the network (Wisp) is down.", "ERR_INTERNET_DISCONNECTED"];
+  if (/no bare clients|transport/i.test(message)) return [" can't be reached: the webshell that fetches it was closed or reloaded.", "ERR_CONNECTION_CLOSED"];
+  return [" can't be reached right now.", "ERR_FAILED"];
+}
+async function previewFetch(e) {
+  scramjet ??= new ScramjetServiceWorker();
+  await scramjet.loadConfig();
+  const res = await scramjet.fetch(e);
+  // Scramjet's own error page (a stack trace): the browser's kind instead.
+  if (res.status >= 500 && /text\/html/.test(res.headers.get("content-type") ?? "") && e.request.mode === "navigate") {
+    const text = await res.clone().text();
+    if (text.includes("<title>Scramjet</title>") && text.includes("errorTrace.value")) {
+      const trace = JSON.parse(/errorTrace\.value = ("(?:[^"\\]|\\.)*")/.exec(text)?.[1] ?? '""');
+      const url = JSON.parse(/fetchedURL\.textContent = ("(?:[^"\\]|\\.)*")/.exec(text)?.[1] ?? '""');
+      let site = url; try { site = new URL(url).host; } catch {}
+      const [line, code] = netError(trace);
+      return errorPage(site || "This site", line, code);
+    }
+  }
+  return res;
+}
+
 self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+  if (url.origin === self.location.origin && url.pathname.startsWith(PREVIEW_PATH)) { e.respondWith(previewFetch(e)); return; }
+  const res = ordinary(e);
+  if (res) e.respondWith(res);
+});
+/** The response for a request outside the Preview tabs, or undefined to leave it to the network. */
+function ordinary(e) {
   const req = e.request;
-  if (req.method !== "GET") return;
+  if (req.method !== "GET") return undefined;
   const url = new URL(req.url);
   if (req.mode === "navigate" && url.href.startsWith(BASE) && !url.pathname.includes("/vscode/")) {
-    e.respondWith(networkFirst(req, SHELL, 3000).catch(async () => (await caches.match(new URL("index.html", BASE).href)) ?? Response.error()));
-    return;
+    return networkFirst(req, SHELL, 3000).catch(async () => (await caches.match(new URL("index.html", BASE).href)) ?? Response.error());
   }
-  if (url.href.startsWith(NANITE)) { e.respondWith(networkFirst(req, RUNTIME)); return; }
-  if (!url.href.startsWith(BASE)) return;
+  if (url.href.startsWith(NANITE)) return networkFirst(req, RUNTIME);
+  if (!url.href.startsWith(BASE)) return undefined;
   const path = url.href.slice(BASE.length);
-  if (path.startsWith("assets/") || path.startsWith("icons/")) e.respondWith(cacheFirst(req, SHELL));
-  else if (/^roots\/[^/]+\.tar\.gz$/.test(path) || /^api\/docker\/[^/]+\.tar\.gz$/.test(path)) e.respondWith(cacheFirst(req, RUNTIME));
-  else if (/^roots\/[^/]+\.ffs\/blobs\/[0-9a-f]+$/.test(path)) e.respondWith(cacheFirst(req, ROOTS));   // never change
-  else if (/^roots\/[^/]+\.ffs\//.test(path)) e.respondWith(networkFirst(req, ROOTS, 5000));            // metadata.pack.*, hardlinks.json
-  else if (path.startsWith("vscode/web/")) e.respondWith(staleWhileRevalidate(req, RUNTIME, e));
-  else if (path.startsWith("vscode/")) e.respondWith(networkFirst(req, RUNTIME, 3000));   // our bootstrap and extension: changes show at once
-  else if (path === "manifest.webmanifest" || path === "" || path === "index.html") e.respondWith(networkFirst(req, SHELL, 3000));
-});
+  if (path.startsWith("assets/") || path.startsWith("icons/")) return (cacheFirst(req, SHELL));
+  if (/^roots\/[^/]+\.tar\.gz$/.test(path) || /^api\/docker\/[^/]+\.tar\.gz$/.test(path)) return (cacheFirst(req, RUNTIME));
+  if (/^roots\/[^/]+\.ffs\/blobs\/[0-9a-f]+$/.test(path)) return (cacheFirst(req, ROOTS));   // never change
+  if (/^roots\/[^/]+\.ffs\//.test(path)) return (networkFirst(req, ROOTS, 5000));            // metadata.pack.*, hardlinks.json
+  if (path.startsWith("vscode/web/")) return (staleWhileRevalidate(req, RUNTIME, e));
+  if (path.startsWith("vscode/")) return (networkFirst(req, RUNTIME, 3000));   // our bootstrap and extension: changes show at once
+  if (path === "manifest.webmanifest" || path === "" || path === "index.html") return (networkFirst(req, SHELL, 3000));
+  return undefined;
+}

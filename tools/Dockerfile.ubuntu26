@@ -11,15 +11,14 @@ RUN mkdir /out && cd /src && gcc -O2 -s -o /out/usage usage/usage.c && gcc -O2 -
  && gcc -O2 -s -o /out/nanite-xkeys nanite-xkeys/nanite-xkeys.c -lX11 -lXtst
 
 FROM ubuntu:26.04
-# fish is root's login shell (the page starts it as `fish --login`: shells() in src/lib/machine.ts; its setup is in
-# /etc/fish/conf.d/00-nanite.fish). Known issue: fish 4 can exit 127 on Nanite at pipelines of programs (reports/nanite-bugs.md);
-# bash stays installed.
+# bash is root's login shell. (fish is dropped for now: fish 4 can exit 127 on Nanite at pipelines of programs,
+# reports/nanite-bugs.md; its setup is kept in demo/fish/ for when it comes back.) python3 stays: fish brought it, and the
+# Web Browser tab suggests python3 -m http.server.
 RUN apt-get update \
  && apt-get install -y --allow-remove-essential coreutils-from-gnu coreutils-from-uutils- \
- && apt-get install -y --no-install-recommends fish \
+ && apt-get install -y --no-install-recommends python3 \
  && (apt-get purge -y --allow-remove-essential rust-coreutils || true) \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY demo/home/ /root/
 COPY demo/rootfs/ /
 COPY --from=build /out/ /usr/local/bin/
-RUN chsh -s /usr/bin/fish root

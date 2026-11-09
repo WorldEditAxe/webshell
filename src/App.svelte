@@ -7,12 +7,14 @@
   import { flip } from "svelte/animate";
   import { motion } from "./lib/motion";
   import {
-    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, RotateCcw, Code, Cpu, SquareTerminal, HardDrive, Bell, MonitorUp,
+    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, RotateCcw, Code, Globe, Settings as SettingsIcon, Bell, MonitorUp,
     PanelTopClose, PanelTopOpen, WifiOff, RefreshCw, ExternalLink, GitBranch,
   } from "@lucide/svelte";
   import TerminalView from "./lib/TerminalView.svelte";
   import MonitorView from "./lib/MonitorView.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
+  import PreviewView from "./lib/PreviewView.svelte";
+  import { servePreviews } from "./lib/preview";
   import AskDialog from "./lib/AskDialog.svelte";
   import CodeView from "./lib/CodeView.svelte";
   import { Bars, C, Shell } from "./lib/term";
@@ -24,7 +26,7 @@
   import { ask } from "./lib/ask.svelte";
   import { FSD, GuestFiles } from "./lib/files";
 
-  type Tab = { id: string; kind: "term" | "monitor" | "code"; shell?: Shell; termId?: number; closable: boolean };
+  type Tab = { id: string; kind: "term" | "monitor" | "code" | "preview"; shell?: Shell; termId?: number; closable: boolean };
   const w = window as unknown as Record<string, unknown>;
   const enc = new TextEncoder();
   // Boot timings (ms since navigation), for finding what is slow: window.bootTimes.
@@ -40,10 +42,9 @@
 
   let tabs = $state.raw<Tab[]>([
     { id: "main", kind: "term", shell: main, closable: false },
-    { id: "monitor", kind: "monitor", closable: true },
-  ]);
+  ]);   // the Display opens from + (or from the hint when something is drawn on the screen)
   let active = $state("main");
-  let titles = $state<Record<string, string>>({ main: root.name, monitor: "monitor" });
+  let titles = $state<Record<string, string>>({ main: root.name, monitor: "Display" });
   let belled = $state<Record<string, boolean>>({});
   let nv = $state.raw<M.Nanite | null>(null);
   let booted = $state(false);
@@ -173,6 +174,15 @@
     tabs = [...tabs, { id, kind: "code", closable: true }];
     titles[id] = n === 1 ? "VS Code" : `VS Code ${n}`; active = id;
   }
+  // Preview tabs (lib/PreviewView.svelte, on Scramjet): the machine's web servers and the web, through this machine and its Wisp relay.
+  let previewCount = 0;
+  servePreviews(() => nv ?? null, () => (w.wisp as { url?: string } | undefined)?.url ?? null);
+  function openPreview(): void {
+    plusOpen = false;
+    const n = ++previewCount, id = `preview${n}`;
+    tabs = [...tabs, { id, kind: "preview", closable: true }];
+    titles[id] = "Web Browser"; active = id;
+  }
   function openMonitor(): void {
     plusOpen = false; drawHint = false;
     if (!monitorOpen) tabs = [...tabs.slice(0, 1), { id: "monitor", kind: "monitor", closable: true }, ...tabs.slice(1)];
@@ -188,7 +198,7 @@
     if (tab.termId !== undefined) { if (hangup) closePty(tab.termId); else { gone.add(tab.termId); terms.delete(tab.termId); } }
     tabs = tabs.filter((t) => t.id !== id);
     delete titles[id]; delete belled[id];
-    if (id === "monitor") titles.monitor = "monitor";
+    if (id === "monitor") titles.monitor = "Display";
     if (active === id) active = tabs[Math.min(i, tabs.length - 1)]!.id;
   }
   function onTerminalExit(termId: number): void {
@@ -329,7 +339,7 @@
       // The screen: the size from the settings, or else the monitor tab's.
       screen = launch.screenWidth && launch.screenHeight ? { width: launch.screenWidth, height: launch.screenHeight } : monitor!.areaSize();
       const start = async () => {
-        nv = await M.createMachine(mod, $state.snapshot(launch), wisp.url, { width: screen.width, height: screen.height }, root.disk, hooks); w.nv = nv;
+        nv = await M.createMachine(mod, $state.snapshot(launch), wisp.url, { width: screen.width, height: screen.height }, root.disk, hooks); w.nv = nv; w.memReport = () => M.memReport(nv!);
         nv.worker.addEventListener("message", (e) => { if (e.data?.ev === "wisp") wispDown = e.data.state === "down"; });
         return nv;
       };
@@ -374,7 +384,7 @@
     }
   }
 
-  // Pills: the tabs and buttons of the top bar; the menu button is a rounded square shaded in the accent.
+  // Pills: the tabs and buttons of the top bar; the menu button is a rounded square, in the accent only while its menu is open.
   const pill = "group flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs transition-colors";
   const iconBtn = "grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-sakura/15 hover:text-sakura disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted";
   const item = "flex w-full items-center gap-2.5 rounded-full px-3 py-1.5 text-left text-xs text-fg hover:bg-sakura/15 hover:text-sakura disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg";
@@ -399,7 +409,7 @@
           class="{pill} outline-none focus-visible:ring-1 focus-visible:ring-sakura {active === tab.id ? 'bg-bg text-sakura ring-1 ring-line' : 'text-muted hover:bg-raised/60 hover:text-fg'} {tab.closable ? 'pr-1' : ''}"
           onclick={() => (active = tab.id)} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); active = tab.id; } }}
           onauxclick={(e) => { if (e.button === 1) closeTab(tab.id); }} onmousedown={(e) => { if (e.button === 1) e.preventDefault(); }}>
-          {#if tab.kind === "monitor"}<Monitor size={14} class="shrink-0" />{:else if tab.kind === "code"}<Code size={14} class="shrink-0" />{:else}<TerminalIcon size={14} class="shrink-0" />{/if}
+          {#if tab.kind === "monitor"}<Monitor size={14} class="shrink-0" />{:else if tab.kind === "code"}<Code size={14} class="shrink-0" />{:else if tab.kind === "preview"}<Globe size={14} class="shrink-0" />{:else}<TerminalIcon size={14} class="shrink-0" />{/if}
           <span class="max-w-[22ch] truncate">{titles[tab.id]}</span>
           {#if belled[tab.id]}<span in:scale={{ duration: motion(200) }} class="grid"><Bell size={12} class="shrink-0 animate-pulse text-sakura" aria-label="the bell rang" /></span>{/if}
           {#if tab.closable}
@@ -420,7 +430,7 @@
       {#if barHidden}<PanelTopOpen size={15} />{:else}<PanelTopClose size={15} />{/if}
     </button>
     <div class="relative shrink-0" data-menu>
-      <button class="grid h-8 w-8 place-items-center rounded-lg border border-sakura/40 bg-sakura/20 text-sakura transition-[background-color,color,transform] duration-150 hover:bg-sakura/30 active:scale-95 aria-expanded:bg-sakura aria-expanded:text-bar"
+      <button class="grid h-8 w-8 place-items-center rounded-lg text-muted transition-[background-color,color,transform] duration-150 hover:bg-sakura/15 hover:text-sakura active:scale-95 aria-expanded:bg-sakura aria-expanded:text-bar"
         title="Menu" aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}><Menu size={16} /></button>
       {#if menuOpen}
         <div role="menu" transition:fly={{ y: -6, duration: motion(140) }} class="absolute top-full right-0 z-20 mt-2 w-52 rounded-3xl border border-line bg-panel p-1.5 shadow-xl shadow-black/50">
@@ -428,9 +438,7 @@
           <button role="menuitem" class={item} title="Replace this root's disk with a saved .tar.gz" onclick={() => { menuOpen = false; fileInput.click(); }}><FolderOpen size={14} />Load disk</button>
           <button role="menuitem" class="{item} hover:!bg-danger/15 hover:!text-danger" title="Delete this root's disk and start fresh" onclick={() => { menuOpen = false; void resetDisk(); }}><RotateCcw size={14} />Reset</button>
           <div class={sep}></div>
-          <button role="menuitem" class={item} onclick={() => openSettings("nanite")}><Cpu size={14} />Nanite</button>
-          <button role="menuitem" class={item} onclick={() => openSettings("terminal")}><SquareTerminal size={14} />Terminal</button>
-          <button role="menuitem" class={item} onclick={() => openSettings("storage")}><HardDrive size={14} />Storage<span class="ml-auto truncate text-[10px] text-muted">{root.name}</span></button>
+          <button role="menuitem" class={item} title="Nanite, Terminal and Storage" onclick={() => openSettings(settingsTab)}><SettingsIcon size={14} />Settings<span class="ml-auto truncate text-[10px] text-muted">{root.name}</span></button>
           <div class={sep}></div>
           <a role="menuitem" class={item} href="https://github.com/WorldEditAxe/webshell" target="_blank" rel="noopener" title="The source on GitHub (opens in a new tab)"
             onclick={() => (menuOpen = false)}><GitBranch size={14} />GitHub<ExternalLink size={12} class="ml-auto text-muted" aria-label="opens in a new tab" /></a>
@@ -444,7 +452,8 @@
     <div role="menu" data-plus transition:fly={{ y: -6, duration: motion(140) }} class="fixed z-30 w-48 rounded-3xl border border-line bg-panel p-1.5 shadow-xl shadow-black/50" style="left: {plusX}px; top: 46px">
       <button role="menuitem" class={item} onclick={newTab}><TerminalIcon size={14} />Terminal</button>
       <button role="menuitem" class={item} disabled={!hasPerl} title={hasPerl ? "VS Code on this machine" : "Needs Perl on this root (its file server)"} onclick={openCode}><Code size={14} />VS Code</button>
-      {#if !monitorOpen}<button role="menuitem" class={item} onclick={openMonitor}><Monitor size={14} />Monitor</button>{/if}
+      <button role="menuitem" class={item} title="Web sites, and web servers in the machine (localhost:PORT)" onclick={openPreview}><Globe size={14} />Web Browser</button>
+      {#if !monitorOpen}<button role="menuitem" class={item} onclick={openMonitor}><Monitor size={14} />Display</button>{/if}
     </div>
   {/if}
 
@@ -454,6 +463,8 @@
         <TerminalView shell={tab.shell} active={active === tab.id} dispose={tab.closable} />
       {:else if tab.kind === "code" && nv}
         <CodeView {nv} {sh} active={active === tab.id} {openPty} {closePty} {fileServer} info={() => ({ root: root.name, memory: launch.memory })} onstorage={() => openSettings("storage")} />
+      {:else if tab.kind === "preview"}
+        <PreviewView active={active === tab.id} ontitle={(t) => (titles[tab.id] = t)} />
       {/if}
     {/each}
     <!-- The monitor stays mounted when its tab is closed: the machine's screen keeps its size, and its first picture is noticed. -->
