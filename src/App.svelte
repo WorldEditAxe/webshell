@@ -7,7 +7,7 @@
   import { flip } from "svelte/animate";
   import { motion } from "./lib/motion";
   import {
-    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, RotateCcw, Code, Cpu, SquareTerminal, HardDrive, Bell, MonitorUp,
+    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, RotateCcw, Code, Settings as SettingsIcon, Bell, MonitorUp,
     PanelTopClose, PanelTopOpen, WifiOff, RefreshCw, ExternalLink, GitBranch,
   } from "@lucide/svelte";
   import TerminalView from "./lib/TerminalView.svelte";
@@ -428,9 +428,7 @@
           <button role="menuitem" class={item} title="Replace this root's disk with a saved .tar.gz" onclick={() => { menuOpen = false; fileInput.click(); }}><FolderOpen size={14} />Load disk</button>
           <button role="menuitem" class="{item} hover:!bg-danger/15 hover:!text-danger" title="Delete this root's disk and start fresh" onclick={() => { menuOpen = false; void resetDisk(); }}><RotateCcw size={14} />Reset</button>
           <div class={sep}></div>
-          <button role="menuitem" class={item} onclick={() => openSettings("nanite")}><Cpu size={14} />Nanite</button>
-          <button role="menuitem" class={item} onclick={() => openSettings("terminal")}><SquareTerminal size={14} />Terminal</button>
-          <button role="menuitem" class={item} onclick={() => openSettings("storage")}><HardDrive size={14} />Storage<span class="ml-auto truncate text-[10px] text-muted">{root.name}</span></button>
+          <button role="menuitem" class={item} title="Nanite, Terminal and Storage" onclick={() => openSettings(settingsTab)}><SettingsIcon size={14} />Settings<span class="ml-auto truncate text-[10px] text-muted">{root.name}</span></button>
           <div class={sep}></div>
           <a role="menuitem" class={item} href="https://github.com/WorldEditAxe/webshell" target="_blank" rel="noopener" title="The source on GitHub (opens in a new tab)"
             onclick={() => (menuOpen = false)}><GitBranch size={14} />GitHub<ExternalLink size={12} class="ml-auto text-muted" aria-label="opens in a new tab" /></a>
