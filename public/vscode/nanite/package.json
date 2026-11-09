@@ -1,0 +1,32 @@
+{
+  "name": "nanite",
+  "displayName": "Nanite machine",
+  "description": "The Nanite Webshell's Linux machine as VS Code's remote: its files (nanite:), its terminals, and the remote menu.",
+  "publisher": "nanite-webshell",
+  "version": "1.1.1",
+  "engines": { "vscode": "^1.90.0" },
+  "browser": "./extension.js",
+  "activationEvents": ["onFileSystem:nanite", "onStartupFinished", "onTerminalProfile:nanite.bash"],
+  "contributes": {
+    "terminal": { "profiles": [{ "id": "nanite.bash", "title": "Nanite shell", "icon": "terminal-linux" }] },
+    "resourceLabelFormatters": [
+      { "scheme": "nanite", "authority": "*", "formatting": { "label": "${path}", "separator": "/", "tildify": false, "workspaceSuffix": "Nanite" } }
+    ],
+    "commands": [
+      { "command": "nanite.newTerminal", "title": "New Terminal", "category": "Nanite", "icon": "$(terminal)" },
+      { "command": "nanite.openFolder", "title": "Open Folder on the Machine…", "category": "Nanite", "icon": "$(folder-opened)" },
+      { "command": "nanite.openRoot", "title": "Open / (the Whole Filesystem)", "category": "Nanite", "icon": "$(root-folder)" },
+      { "command": "nanite.storage", "title": "Switch Root Filesystem…", "category": "Nanite", "icon": "$(server-environment)" },
+      { "command": "nanite.info", "title": "Show Machine Info", "category": "Nanite", "icon": "$(vm)" }
+    ],
+    "menus": {
+      "statusBar/remoteIndicator": [
+        { "command": "nanite.newTerminal", "group": "remote_10_nanite@1" },
+        { "command": "nanite.openFolder", "group": "remote_10_nanite@2" },
+        { "command": "nanite.openRoot", "group": "remote_10_nanite@3" },
+        { "command": "nanite.storage", "group": "remote_10_nanite@4" },
+        { "command": "nanite.info", "group": "remote_10_nanite@5" }
+      ]
+    }
+  }
+}

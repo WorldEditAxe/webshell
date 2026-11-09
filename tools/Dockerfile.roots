@@ -1,0 +1,24 @@
+# The plain roots (tools/make-root.sh): the images as Docker ships them, plus `usage` (system stats; static, so it runs on
+# Alpine's musl as on glibc) and its source in /usr/local/src/usage. Build one with --target ubuntu-plain | debian | alpine.
+FROM ubuntu:26.04 AS usage
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev
+COPY demo/rootfs/usr/local/src/usage/ /src/
+RUN gcc -O2 -s -static -o /usage /src/usage.c
+
+# Ubuntu needs one change to run on Nanite: GNU coreutils (coreutils-from-gnu) instead of uutils, whose multicall binary checks
+# /proc/self/exe against the utility name and fails there ("Security violation").
+FROM ubuntu:26.04 AS ubuntu-plain
+RUN apt-get update \
+ && apt-get install -y --allow-remove-essential coreutils-from-gnu coreutils-from-uutils- \
+ && (apt-get purge -y --allow-remove-essential rust-coreutils || true) \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=usage /usage /usr/local/bin/usage
+COPY demo/rootfs/usr/local/src/usage/ /usr/local/src/usage/
+
+FROM debian:trixie AS debian
+COPY --from=usage /usage /usr/local/bin/usage
+COPY demo/rootfs/usr/local/src/usage/ /usr/local/src/usage/
+
+FROM alpine:3.22 AS alpine
+COPY --from=usage /usage /usr/local/bin/usage
+COPY demo/rootfs/usr/local/src/usage/ /usr/local/src/usage/

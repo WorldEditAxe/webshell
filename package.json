@@ -1,0 +1,36 @@
+{
+  "name": "nanite-webshell",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "start": "node server.mjs",
+    "root": "sh tools/make-root.sh",
+    "cf:build": "vite build && node tools/build-cf.mjs",
+    "cf:dev": "npm run cf:build && wrangler dev",
+    "cf:deploy": "npm run cf:build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@tailwindcss/vite": "^4.3.5",
+    "@tsconfig/svelte": "^5.0.8",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "wrangler": "^4.156.0"
+  },
+  "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@lucide/svelte": "^1.70.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-ligatures": "^0.10.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "fragmentedfs": "file:vendor/fragmentedfs"
+  }
+}

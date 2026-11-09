@@ -1,0 +1,10 @@
+Multiarch binaries. Run them straight from the shell:
+
+  ./hello-riscv32           a 900-byte freestanding program (source: hello.c)
+  ./busybox-aarch64 sh      a whole arm64 shell; try uname -m, ls, top
+  ./run-all.sh              every binary here, one line each
+
+hello-*    built from hello.c with clang for six architectures (no libc, raw system calls)
+busybox-*  Alpine Linux's busybox-static 1.37 for aarch64, armv7, armhf, x86, riscv64
+
+Each one reports its own architecture in uname -m: Nanite gives every process the personality of the code it runs.

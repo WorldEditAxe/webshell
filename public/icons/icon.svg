@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Lucide "terminal" (ISC licence) on a sakura tile -->
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f9d2de"/><stop offset="1" stop-color="#d98aa8"/></linearGradient></defs>
+<rect width="512" height="512" rx="116" fill="url(#g)"/>
+<g transform="translate(96 96) scale(13.333)" fill="none" stroke="#1a1619" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></g>
+</svg>

@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* Afterglow with a slight sakura tint (the terminal's own colours are in lib/term.ts). */
+@theme {
+  --color-bar: #141114;
+  --color-bg: #221d21;
+  --color-panel: #1a1619;
+  --color-raised: #2b2429;
+  --color-line: #4a3442;
+  --color-fg: #d6cfd3;
+  --color-muted: #7a6c75;
+  --color-sakura: #f2b5c8;
+  --color-blossom: #b0798f;
+  --color-danger: #cc5a64;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+html, body, #app { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-mono); color-scheme: dark; }
+
+.xterm { height: 100%; }
+.xterm .xterm-viewport { background: transparent !important; }
+.xterm .xterm-viewport::-webkit-scrollbar { width: 8px; }
+.xterm .xterm-viewport::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 4px; }
+
+/* Inactive tabs stay laid out (so terminals keep their size) but hidden. xterm.js 6 sets its own scrollbar visible, which would
+   otherwise show through from every hidden tab: keep everything inside a hidden panel hidden. */
+[role="tabpanel"].invisible, [role="tabpanel"].invisible * { visibility: hidden !important; }
+
+/* Everything clickable shows the hand. */
+button:not(:disabled), [role="button"], [role="tab"], [role="menuitem"], a[href], summary, select, label[for], input[type="file"] { cursor: pointer; }
+
+/* Dialogs pop in, their backdrop fades. Hover and press feedback on pills and buttons. */
+dialog[open] { animation: pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+dialog[open]::backdrop { animation: fade-in 0.2s ease-out; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(0.97); } }
+@keyframes fade-in { from { opacity: 0; } }
+@layer base {
+  [role="tab"], [role="menuitem"], button { transition-property: color, background-color, border-color, box-shadow, opacity, transform; transition-duration: 150ms; }
+  [role="tab"]:active, [role="menuitem"]:active { transform: scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; } }

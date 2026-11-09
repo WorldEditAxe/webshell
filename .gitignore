@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output (npm run build, npm run cf:build)
+dist/
+cf-dist/
+
+# Generated root filesystems (tools/make-root.sh) and their exported tarballs
+public/roots/*.ffs/
+public/roots/*.ffs.part/
+cache/
+
+# VS Code for the web (tools/get-vscode-web.sh)
+public/vscode/web/
+
+# Wrangler local state
+.wrangler/
+.dev.vars*
+
+# Logs, local tooling, OS and editor files
+logs/
+*.log
+.claude/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+.env
+.env.*

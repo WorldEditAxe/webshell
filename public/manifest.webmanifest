@@ -1,0 +1,19 @@
+{
+  "name": "Nanite Webshell",
+  "short_name": "Nanite",
+  "description": "Linux in your browser: Ubuntu, Debian, Alpine or any Docker image on Nanite, with terminals, VS Code and a screen.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#221d21",
+  "theme_color": "#141114",
+  "categories": ["developer", "utilities"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

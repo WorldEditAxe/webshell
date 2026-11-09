@@ -1,0 +1,14 @@
+// Cloudflare Workers deployment: npm run cf:deploy (builds dist/, assembles cf-dist/ with tools/build-cf.mjs, wrangler deploy).
+// Static assets, with cf/worker.js in front of only the FragmentedFS blobs (served gzipped) and /api/docker (not available here).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nanite-webshell",
+  "main": "cf/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./cf-dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/roots/*", "/api/*"],
+    "not_found_handling": "none"
+  }
+}

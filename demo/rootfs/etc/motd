@@ -1,0 +1,31 @@
+[38;2;255;101;253m============================================[0m
+[1m[38;2;255;101;253mWelcome to the Nanite Webshell![0m
+
+[1m[38;2;203;182;255mNanite[0m is a polyglot ([38;2;152;146;241mx86-64[0m, [38;2;152;146;241mx86[0m, [38;2;152;146;241mriscv[0m, [38;2;152;146;241mriscv64[0m, [38;2;152;146;241maarch64[0m, [38;2;152;146;241marmhf[0m), performance-first
+WASM userspace emulator for Linux. Though normally you'd use this with [38;2;245;149;116mbinfmt[0m, it
+can also run standalone under its "[38;2;203;182;255mvkernel[0m" Linux userspace ABI implementation.
+
+The Nanite Webshell runs a [1mUbuntu 26.04 LTS[0m rootfs and runs it alongside the [38;2;203;182;255mvkernel[0m
+implementation. Internet access is available through [38;2;245;149;116mWISP[0m, and all processing and
+storage happens on your device.
+
+[1mTry out some commands[0m [38;2;120;109;105m(run[0m [38;2;34;229;41mapt update[0m [38;2;120;109;105mfirst)[0m:
+[38;2;120;109;105m-[0m [38;2;34;229;41muname -a[0m
+[38;2;120;109;105m-[0m [38;2;34;229;41mapt install -y curl && curl -I https://ubuntu.com[0m
+[38;2;120;109;105m-[0m [38;2;34;229;41mapt install -y neovim && nvim[0m
+[38;2;120;109;105m-[0m [38;2;34;229;41mapt install -y python3 && python3 -c "print('hello from nanite!')"[0m
+
+[1mMore in your home directory[0m:
+[38;2;120;109;105m-[0m [38;2;34;229;41m./multiarch/run-all.sh        [0m  [38;2;152;146;241mx86[0m, [38;2;152;146;241marm64[0m, [38;2;152;146;241marmhf[0m, [38;2;152;146;241mriscv64[0m and [38;2;152;146;241mriscv32[0m binaries
+[38;2;120;109;105m-[0m [38;2;34;229;41m./multiarch/busybox-aarch64 sh[0m  an [38;2;152;146;241marm64[0m shell, on this [38;2;152;146;241mx86-64[0m Ubuntu
+[38;2;120;109;105m-[0m [38;2;34;229;41m./multiarch/hello-riscv32     [0m  a 900-byte [38;2;152;146;241mriscv32[0m program
+[38;2;120;109;105m-[0m [38;2;34;229;41m./net-test.sh                 [0m  DNS, TCP, HTTP and ping through [38;2;245;149;116mWISP[0m
+[38;2;120;109;105m-[0m [38;2;34;229;41m./screen/paint                [0m  draw on the virtual screen (the monitor tab)
+[38;2;120;109;105m-[0m [38;2;34;229;41m./screen/install-desktop.sh  [0m  a lightweight desktop (Xorg + JWM), then [38;2;34;229;41mstartdesktop[0m
+[38;2;120;109;105m-[0m [38;2;34;229;41musage                         [0m  CPU, RAM, disk and network at a glance
+[38;2;120;109;105m-[0m [38;2;34;229;41mping 1.1.1.1                  [0m  real ICMP, through [38;2;245;149;116mWISP[0m's ping extension
+[38;2;120;109;105m-[0m [38;2;34;229;41m./sysinfo.sh[0m, [38;2;34;229;41m./colors.sh[0m       the machine and the terminal
+
+I've put in a few files in the home directory for you to play with. Feel free to peek around!
+[38;2;250;204;21mRun [38;2;34;229;41mtouch ~/.hidemotd[0m[38;2;250;204;21m if you'd like to hide this message from future logins.[0m
+[38;2;255;101;253m============================================[0m

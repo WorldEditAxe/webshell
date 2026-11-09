@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- VS Code for the Web (Microsoft's build, in web/: tools/get-vscode-web.sh), in the Code tab's iframe. The workspace is the
+     Nanite machine's /root through the extension in nanite/: ?session= names the page's channel to the machine. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+<title>VS Code · Nanite</title>
+<link rel="icon" href="web/favicon.ico" type="image/x-icon">
+<link data-name="vs/workbench/workbench.web.main" rel="stylesheet" href="web/out/vs/workbench/workbench.web.main.internal.css">
+<style id="vscode-css-modules" type="text/css" media="screen"></style>
+</head>
+<body aria-label=""></body>
+<script>
+  globalThis._VSCODE_FILE_ROOT = new URL("web/out/", location.href).toString();
+</script>
+<script src="web/out/nls.messages.js"></script>
+<script type="module">
+  import { create, URI } from "./web/out/vs/workbench/workbench.web.main.internal.js";
+  const q = new URLSearchParams(location.search);
+  const session = (q.get("session") || "default").replace(/[^\w-]/g, "");
+  // An absolute path (VS Code throws on a URI with an authority and a relative path): ~ is /root, anything else relative is from /root.
+  let folder = (q.get("folder") || "/root").trim();
+  if (folder === "~" || folder.startsWith("~/")) folder = "/root" + folder.slice(1);
+  else if (!folder.startsWith("/")) folder = "/root/" + folder;
+  const here = new URL(".", location.href);
+  let theme = {};
+  try { theme = JSON.parse(localStorage.getItem("nanite-webshell:vscode-theme") ?? "{}") ?? {}; } catch {}
+  const workspace = { folderUri: URI.from({ scheme: "nanite", authority: session, path: folder }) };
+  create(document.body, {
+    workspaceProvider: { workspace, trusted: true, open: async () => false },
+    additionalBuiltinExtensions: [URI.from({ scheme: here.protocol.slice(0, -1), authority: here.host, path: `${here.pathname}nanite` })],
+    productConfiguration: {
+      nameShort: "Code", nameLong: "VS Code · Nanite", applicationName: "code-nanite", dataFolderName: ".vscode-nanite",
+      enableTelemetry: false,
+      // The extension host and webviews from this server, not Microsoft's CDN (the build's default): the extension then runs in
+      // this page's origin, where it can reach the Nanite page's BroadcastChannel.
+      webEndpointUrlTemplate: `${here.origin}${here.pathname}web`,
+      webviewContentExternalBaseUrlTemplate: `${here.origin}${here.pathname}web/out/vs/workbench/contrib/webview/browser/pre/`,
+      // Web extensions from Open VSX (Microsoft's marketplace is only for Microsoft's own products).
+      extensionsGallery: {
+        serviceUrl: "https://open-vsx.org/vscode/gallery", itemUrl: "https://open-vsx.org/vscode/item",
+        resourceUrlTemplate: "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
+        extensionUrlTemplate: "https://open-vsx.org/vscode/gallery/{publisher}/{name}/latest",
+        controlUrl: "", nlsBaseUrl: "",
+      },
+    },
+    configurationDefaults: {
+      // The page's theme (src/lib/themes.ts writes it).
+      "workbench.colorTheme": theme.colorTheme ?? "Default Dark Modern",
+      "workbench.colorCustomizations": theme.colors ?? {},
+      "editor.fontFamily": "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
+      "editor.fontLigatures": true,
+      "terminal.integrated.fontFamily": "'JetBrains Mono', ui-monospace, monospace",
+      "terminal.integrated.defaultProfile.linux": "Nanite shell",
+      "workbench.startupEditor": "none",
+      "files.watcherExclude": { "**": true },
+      "security.workspace.trust.enabled": false,
+    },
+  });
+</script>
+</html>
