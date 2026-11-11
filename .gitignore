@@ -2,7 +2,7 @@
 node_modules/
 
 # Build output (npm run build, npm run cf:build)
-dist/
+/dist/
 cf-dist/
 
 # Generated root filesystems (tools/make-root.sh) and their exported tarballs
