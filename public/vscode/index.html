@@ -27,8 +27,28 @@
   let theme = {};
   try { theme = JSON.parse(localStorage.getItem("nanite-webshell:vscode-theme") ?? "{}") ?? {}; } catch {}
   const workspace = { folderUri: URI.from({ scheme: "nanite", authority: session, path: folder }) };
+  // The machine's web servers, through the webshell page's proxy (the Web Browser tab's Scramjet): forwarded ports (the Ports view,
+  // "Open in Browser", "Preview in Editor") and localhost links (terminal links, openExternal) get the proxied address.
+  const proxied = async (url) => {
+    const f = window.parent?.naniteProxiedUrl ?? window.top?.naniteProxiedUrl;
+    if (!f) throw new Error("the Nanite page is not there");
+    return await f(url);
+  };
+  const LOCAL = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])$/i;
+  const noEvent = () => ({ dispose() {} });
   create(document.body, {
     workspaceProvider: { workspace, trusted: true, open: async () => false },
+    resolveExternalUri: async (uri) => {
+      if (!/^https?$/.test(uri.scheme) || !LOCAL.test(uri.authority.replace(/:\d+$/, ""))) return uri;
+      try { return URI.parse(await proxied(uri.toString(true))); } catch { return uri; }
+    },
+    tunnelProvider: {
+      tunnelFactory: async ({ remoteAddress }) => ({
+        remoteAddress, localAddress: await proxied(`http://localhost:${remoteAddress.port}/`), privacy: "private", protocol: "http",
+        onDidDispose: noEvent, dispose() {},
+      }),
+      features: { elevation: false, public: false, privacyOptions: [] },
+    },
     additionalBuiltinExtensions: [URI.from({ scheme: here.protocol.slice(0, -1), authority: here.host, path: `${here.pathname}nanite` })],
     productConfiguration: {
       nameShort: "Code", nameLong: "VS Code · Nanite", applicationName: "code-nanite", dataFolderName: ".vscode-nanite",
@@ -54,6 +74,9 @@
       "terminal.integrated.fontFamily": "'JetBrains Mono', ui-monospace, monospace",
       "terminal.integrated.defaultProfile.linux": "Nanite shell",
       "workbench.startupEditor": "none",
+      // The editor's text input as a plain textarea, not Chrome's EditContext: in this embedded workbench, EditContext keeps the
+      // keyboard focus in the editor (its caret keeps blinking), so the command palette and other inputs get no keys or clicks.
+      "editor.editContext": false,
       "files.watcherExclude": { "**": true },
       "security.workspace.trust.enabled": false,
     },

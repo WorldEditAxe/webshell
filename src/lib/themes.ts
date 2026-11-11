@@ -39,7 +39,79 @@ export const THEMES: Theme[] = [
     term: { background: "#fbf5f7", foreground: "#4a3a42", cursor: "#c25b84", cursorAccent: "#fbf5f7", selectionBackground: "#f2d3df",
       ...ansi(["#4a3a42", "#b8434f", "#5f7a2c", "#a8741a", "#3f6f9a", "#b0497f", "#2f8f88", "#d9cdd3"], ["#8a7880", "#d0505d", "#6f8c35", "#c08a25", "#4f84b3", "#c25b84", "#3aa39b", "#fffafc"]) } },
 ];
-export const theme = (id: string): Theme => THEMES.find((t) => t.id === id) ?? THEMES[0]!;
+export const DEFAULT_THEME = "gruvbox";
+
+// ---- Themes people make (Settings > Terminal): kept in this browser next to the built-in ones ----
+// A theme is this file's Theme as JSON, or a Windows Terminal colour scheme ({name, background, foreground, cursorColor,
+// selectionBackground, black … brightWhite}: thousands are shared, e.g. windowsterminalthemes.dev), whose page colours are derived
+// from its palette. Several at once: a JSON array.
+const USER_KEY = "nanite-webshell:themes";
+export function userThemes(): Theme[] {
+  try { const v = JSON.parse(localStorage.getItem(USER_KEY) ?? "[]"); return Array.isArray(v) ? v.filter(isTheme) : []; } catch { return []; }
+}
+function storeUserThemes(list: Theme[]): void { try { localStorage.setItem(USER_KEY, JSON.stringify(list)); } catch {} }
+export const allThemes = (): Theme[] => [...THEMES, ...userThemes()];
+export const isUserTheme = (id: string) => id.startsWith("user-");
+export const theme = (id: string): Theme => allThemes().find((t) => t.id === id) ?? THEMES.find((t) => t.id === DEFAULT_THEME)!;
+
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const UI_KEYS = ["bar", "bg", "panel", "raised", "line", "fg", "muted", "sakura", "blossom", "danger"] as const;
+const ANSI_KEYS = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+  "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
+function isTheme(t: unknown): t is Theme {
+  const x = t as Theme;
+  return !!x && typeof x.id === "string" && typeof x.name === "string" && !!x.ui && !!x.term && UI_KEYS.every((k) => HEX.test(x.ui[k] ?? ""));
+}
+const rgb = (h: string) => { let x = h.slice(1); if (x.length === 3) x = [...x].map((c) => c + c).join(""); return [0, 2, 4].map((i) => parseInt(x.slice(i, i + 2), 16)); };
+const hex = (c: number[]) => "#" + c.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, "0")).join("");
+const mix = (a: string, b: string, f: number) => { const x = rgb(a), y = rgb(b); return hex(x.map((v, i) => v + (y[i]! - v) * f)); };
+const luminance = (h: string) => { const [r, g, b] = rgb(h).map((v) => v / 255); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!; };
+
+/** The page's colours from a terminal palette: the bar darker than the background, panels between, the accent from the palette. */
+function uiFrom(term: ITheme, dark: boolean): Theme["ui"] {
+  const bg = term.background!, fg = term.foreground!, edge = dark ? "#000000" : "#ffffff";
+  return {
+    bar: mix(bg, edge, dark ? 0.35 : 0.06), bg, panel: mix(bg, edge, dark ? 0.18 : 0.03), raised: mix(bg, fg, 0.1), line: mix(bg, fg, 0.22),
+    fg, muted: mix(bg, fg, 0.5), sakura: term.brightMagenta ?? term.magenta ?? term.cursor ?? fg, blossom: term.magenta ?? term.blue ?? fg, danger: term.red ?? "#cc3333",
+  };
+}
+
+/** Themes from text people paste or load: this app's theme JSON, a Windows Terminal scheme, or an array of either. */
+export function parseThemes(text: string): Theme[] {
+  const v = JSON.parse(text) as unknown;
+  const one = (o: Record<string, unknown>): Theme => {
+    const name = String(o.name ?? "").trim() || "My theme";
+    const id = `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "theme"}`;
+    if (o.ui && o.term) {
+      const t = o as unknown as Theme, base = theme(DEFAULT_THEME);
+      const ui = { ...base.ui, ...Object.fromEntries(Object.entries(t.ui).filter(([, c]) => HEX.test(String(c)))) } as Theme["ui"];
+      return { id, name, dark: t.dark ?? luminance(ui.bg) < 0.5, ui, term: { ...base.term, ...t.term } };
+    }
+    // Windows Terminal: background, foreground, cursorColor, selectionBackground, and the 16 colours by name.
+    const term: ITheme = {};
+    for (const k of ["background", "foreground", ...ANSI_KEYS] as const) {
+      const c = String(o[k] ?? ""); if (!HEX.test(c)) throw new Error(`"${name}": ${k} is missing or not a #colour`);
+      (term as Record<string, string>)[k] = c;
+    }
+    term.cursor = HEX.test(String(o.cursorColor ?? "")) ? String(o.cursorColor) : term.foreground;
+    term.cursorAccent = term.background;
+    term.selectionBackground = HEX.test(String(o.selectionBackground ?? "")) ? String(o.selectionBackground) : mix(term.background!, term.foreground!, 0.25);
+    const dark = luminance(term.background!) < 0.5;
+    return { id, name, dark, ui: uiFrom(term, dark), term };
+  };
+  const list = (Array.isArray(v) ? v : [v]).map((x) => one(x as Record<string, unknown>));
+  if (!list.length) throw new Error("no theme in it");
+  return list;
+}
+/** Adds (or replaces, same name) themes people made; returns them. */
+export function saveUserThemes(list: Theme[]): Theme[] {
+  const mine = userThemes().filter((t) => !list.some((n) => n.id === t.id));
+  storeUserThemes([...mine, ...list]);
+  return list;
+}
+export function deleteUserTheme(id: string): void { storeUserThemes(userThemes().filter((t) => t.id !== id)); }
+/** A theme as JSON to share (without its id: the importer makes one from the name). */
+export const exportTheme = (t: Theme): string => JSON.stringify({ name: t.name, dark: t.dark, ui: t.ui, term: t.term }, null, 2);
 
 /** Colours the page and hands VS Code its colours. */
 export function applyTheme(t: Theme): void {

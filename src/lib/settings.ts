@@ -8,10 +8,29 @@ export interface Launch {
   dcache: number | null;
   /** Nanite's cache of disk blocks in the page's memory, MiB (Nanite's own default is 64). */
   diskCache: number;
+  /** Nanite's OOM killer: when memory runs out, the process whose end frees the most is killed (as Linux does); off: the
+   *  request fails (ENOMEM, fork EAGAIN). Either way the page says so (a memory event). */
+  oomKiller: boolean;
+  /** How processes get memory: "process", a WebAssembly memory each; "single", one shared memory cut into slots of `slotSize`. */
+  memoryMode: "process" | "single";
+  /** A slot of the single memory, MiB; null: Nanite's default (512). */
+  slotSize: number | null;
+  /** Where Nanite keeps the code it translated: "disk" (kept across visits), "memory" (this visit), "off". */
+  cacheBackend: "disk" | "memory" | "off";
+  /** Where the root's files are kept: "disk" (OPFS, else IndexedDB), one of those, or "memory" (not kept: unpacked at every start). */
+  rootStorage: "disk" | "opfs" | "indexeddb" | "memory";
+  /** Prewarming: translating the programs the guest is likely to run next, ahead of time. */
+  prewarm: boolean;
+  /** JavaScript Promise Integration, where the browser has it (blocking calls without unwinding). */
+  jspi: boolean;
   /** The virtual screen (/dev/fb0), pixels; null: the monitor tab's size when the machine starts. */
   screenWidth: number | null;
   screenHeight: number | null;
-  /** A Wisp server (wss://...); empty: the nearest of Spark's relays. */
+  /** How the relay is found: "router", a Wispr router (`wispRouter`) picks the nearest relay; "server", the Wisp server `wisp`. */
+  wispMode: "router" | "server";
+  /** The Wispr router (an https URL answering the nearest relay); empty: Spark's. */
+  wispRouter: string;
+  /** The Wisp server (wss://...) in "server" mode. */
   wisp: string;
   /** Where Nanite comes from: <pkg>/lib/nanitevisor/. */
   pkg: string;
@@ -32,9 +51,10 @@ export const TERMINAL_KEYS = ["fontSize", "lineHeight", "cursorStyle", "cursorBl
 export type TerminalOptions = Pick<Launch, (typeof TERMINAL_KEYS)[number]>;
 
 export const DEFAULTS: Launch = {
-  memory: 512, processMemory: null, dcache: null, diskCache: 16, screenWidth: null, screenHeight: null,
-  wisp: "", pkg: "https://packages.sparkpowered.org",
-  fontSize: 13, lineHeight: 1.12, cursorStyle: "bar", cursorBlink: true, scrollback: 10000, ligatures: true, bell: "thock", theme: "sakura", mouse: "relative",
+  memory: 512, processMemory: null, dcache: null, diskCache: 16,
+  oomKiller: true, memoryMode: "process", slotSize: null, cacheBackend: "disk", rootStorage: "disk", prewarm: true, jspi: true, screenWidth: null, screenHeight: null,
+  wispMode: "router", wispRouter: "", wisp: "", pkg: "https://packages.sparkpowered.org",
+  fontSize: 13, lineHeight: 1.12, cursorStyle: "bar", cursorBlink: true, scrollback: 10000, ligatures: true, bell: "thock", theme: "gruvbox", mouse: "relative",
 };
 
 const KEY = "nanite-webshell:launch";
@@ -50,13 +70,18 @@ export function save(l: Launch): void {
 export function fromUrl(): Partial<Launch> {
   const q = new URLSearchParams(location.search), o: Partial<Launch> = {};
   if (q.get("mem")) o.memory = +q.get("mem")!;
-  if (q.get("wisp")) o.wisp = q.get("wisp")!;
+  if (q.get("wisp")) { o.wisp = q.get("wisp")!; o.wispMode = "server"; }
   if (q.get("pkg")) o.pkg = q.get("pkg")!.replace(/\/$/, "");
   if (q.get("size")) o.fontSize = +q.get("size")!;
   return o;
 }
 
-export const effective = (): Launch => ({ ...DEFAULTS, ...saved(), ...fromUrl() });
+export const effective = (): Launch => {
+  const s = saved();
+  // Saved before there were modes: a Wisp URL meant that server.
+  if (!s.wispMode && s.wisp) s.wispMode = "server";
+  return { ...DEFAULTS, ...s, ...fromUrl() };
+};
 
 /** Whether two settings need different machines (everything but the terminal options and the mouse mode does). */
 export const needsRestart = (a: Launch, b: Launch): boolean =>

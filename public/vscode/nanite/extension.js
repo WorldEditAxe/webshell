@@ -86,6 +86,164 @@ function workspaceSession() {
   return f ? { session: f.uri.authority, cwd: f.uri.path } : null;
 }
 
+/** An address as typed (8000, localhost:8000/x, example.com, https://…) as a URL. */
+function addressUrl(text) {
+  let t = text.trim();
+  if (/^\d+(\/.*)?$/.test(t)) t = `localhost:${t}`;
+  if (/^https?:\/\//i.test(t)) return t;
+  return (/^(localhost|127\.|0\.0\.0\.0|10\.0\.2\.15)/i.test(t) ? "http://" : "https://") + t;
+}
+// Lucide icons (the webshell's icon set), as SVG.
+const ICON = (body) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const ICONS = {
+  back: ICON('<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>'),
+  fwd: ICON('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
+  reload: ICON('<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'),
+  ext: ICON('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'),
+  zin: ICON('<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/>'),
+  zout: ICON('<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="8" x2="14" y1="11" y2="11"/>'),
+  tools: ICON('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/>'),
+  down: ICON('<path d="m6 9 6 6 6-6"/>'),
+};
+// The panel's page talks to the webshell page directly: the webview is of the webshell's origin (tools/patch-vscode-webview.py),
+// so window.top is the webshell, which offers the proxy (naniteProxiedUrl / naniteUnproxiedUrl) and the devtools (naniteDevtools)
+// of its Web Browser tab (src/lib/preview.ts).
+function openBrowserPanel(call, first) {
+  const panel = vscode.window.createWebviewPanel("nanite.browser", "Web Browser", vscode.ViewColumn.Active,
+    { enableScripts: true, retainContextWhenHidden: true });
+  panel.iconPath = new vscode.ThemeIcon("globe");
+  panel.webview.html = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; style-src * data: blob: 'unsafe-inline'; worker-src * data: blob:;">
+<!-- Permissive: the devtools' sidebar (Chii's front end, a blob: page) inherits this page's policy, and loads its code from a CDN. -->
+<style>
+html,body{margin:0;height:100%;background:var(--vscode-editor-background);color:var(--vscode-foreground);font:12px var(--vscode-font-family)}
+body{display:flex;flex-direction:column}
+.bar{display:flex;gap:2px;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border,#4446)}
+button{display:grid;place-items:center;background:none;border:0;color:inherit;min-width:26px;height:26px;padding:0 4px;border-radius:5px;cursor:pointer;font:inherit}
+button:hover{background:var(--vscode-toolbar-hoverBackground,#fff2)}
+button[aria-pressed=true]{background:var(--vscode-toolbar-activeBackground,#fff3);color:var(--vscode-focusBorder)}
+input{flex:1;min-width:0;height:24px;margin:0 4px;padding:0 9px;border-radius:5px;border:1px solid var(--vscode-input-border,#4446);background:var(--vscode-input-background);color:var(--vscode-input-foreground);font:inherit;outline:none}
+input:focus{border-color:var(--vscode-focusBorder)}
+.zoom{min-width:44px;font-variant-numeric:tabular-nums;color:var(--vscode-descriptionForeground)}
+.sep{width:1px;height:16px;margin:0 3px;background:var(--vscode-panel-border,#4446)}
+.menu{position:relative}
+.menu ul{position:absolute;right:0;top:30px;z-index:5;margin:0;padding:4px;list-style:none;min-width:150px;border-radius:6px;border:1px solid var(--vscode-widget-border,#4446);background:var(--vscode-menu-background,var(--vscode-editor-background));box-shadow:0 4px 16px #0006}
+.menu li button{width:100%;justify-content:start;padding:0 8px;display:flex;gap:6px}
+.main{flex:1;display:flex;min-height:0}
+.view{position:relative;flex:1;min-width:0;overflow:hidden;background:#fff}
+#f{position:absolute;left:0;top:0;border:0;transform-origin:0 0;color-scheme:light}
+.side{display:none;position:relative;width:420px;min-width:240px;border-left:1px solid var(--vscode-panel-border,#4446)}
+.side.on{display:block}
+.grip{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3}
+.grip:hover,.grip.on{background:var(--vscode-focusBorder);opacity:.5}
+body.dragging iframe{pointer-events:none}
+.side iframe{width:100%;height:100%;border:0}
+.err{padding:8px 12px;color:var(--vscode-errorForeground);border-bottom:1px solid var(--vscode-panel-border,#4446)}
+</style></head><body>
+<div class="bar">
+  <button id="back" title="Back">${ICONS.back}</button><button id="fwd" title="Forward">${ICONS.fwd}</button><button id="reload" title="Reload">${ICONS.reload}</button>
+  <input id="addr" spellcheck="false" aria-label="Address" placeholder="8000, localhost:8000/path or a web address">
+  <button id="zout" title="Zoom out">${ICONS.zout}</button><button id="zreset" class="zoom" title="Reset zoom">100%</button><button id="zin" title="Zoom in">${ICONS.zin}</button>
+  <span class="sep"></span>
+  <button id="tools" title="Devtools (reloads the page with them)" aria-pressed="false">${ICONS.tools}</button>
+  <span class="menu"><button id="toolsmenu" title="Which devtools">${ICONS.down}</button><ul id="list" hidden></ul></span>
+  <button id="ext" title="Open in a browser tab">${ICONS.ext}</button>
+</div>
+<div id="err" class="err" hidden></div>
+<div class="main"><div class="view"><iframe id="f" title="page"></iframe></div><div class="side" id="side"><div class="grip" id="grip" title="Drag to resize"></div></div></div>
+<script>
+const vs = acquireVsCodeApi(), $ = (id) => document.getElementById(id);
+const f = $("f"), addr = $("addr"), err = $("err"), side = $("side");
+const N = (() => { try { const t = window.top; return t && t.naniteProxiedUrl ? t : null; } catch { return null; } })();
+const fail = (m) => { err.hidden = false; err.textContent = m; };
+if (!N) fail("The webshell page is older than this panel: reload the webshell page (it gives the panel its proxy and devtools).");
+const store = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+const load = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+
+// Addresses: what is typed, made a URL (a port of the machine, localhost:PORT/x, a site), then its proxied address.
+const toUrl = (t) => { t = t.trim(); if (/^\\d+(\\/.*)?$/.test(t)) t = "localhost:" + t; if (/^https?:\\/\\//i.test(t)) return t;
+  return (/^(localhost|127\\.|0\\.0\\.0\\.0|10\\.0\\.2\\.15)/i.test(t) ? "http://" : "https://") + t; };
+let editing = false, last = "";
+async function go(text) {
+  const url = toUrl(text);
+  if (!N) return;
+  try { err.hidden = true; f.src = await N.naniteProxiedUrl(url); if (!editing) addr.value = url; }
+  catch (e) { fail("Could not open " + url + ": " + (e && e.message || e)); }
+}
+addr.addEventListener("focus", () => { editing = true; addr.select(); });
+addr.addEventListener("blur", () => { editing = false; });
+addr.addEventListener("keydown", (e) => { if (e.key === "Enter") { go(addr.value); addr.blur(); } else if (e.key === "Escape") addr.blur(); });
+const hist = (d) => { try { f.contentWindow.history.go(d); } catch {} };
+$("back").onclick = () => hist(-1); $("fwd").onclick = () => hist(1);
+$("reload").onclick = () => { try { f.contentWindow.location.reload(); } catch { f.src = f.src; } };
+$("ext").onclick = () => { let h = f.src; try { h = f.contentWindow.location.href; } catch {} vs.postMessage({ type: "external", src: h }); };
+
+// Zoom: the page scaled (its frame made 1/zoom as big, then scaled back down or up), as the Web Browser tab does.
+const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+let zoom = 1;
+function setZoom(z) { zoom = z; f.style.width = (100 / z) + "%"; f.style.height = (100 / z) + "%"; f.style.transform = "scale(" + z + ")"; $("zreset").textContent = Math.round(z * 100) + "%"; }
+$("zin").onclick = () => setZoom(ZOOMS.find((z) => z > zoom + 0.001) ?? zoom);
+$("zout").onclick = () => setZoom([...ZOOMS].reverse().find((z) => z < zoom - 0.001) ?? zoom);
+$("zreset").onclick = () => setZoom(1);
+setZoom(1);
+
+// Devtools: Eruda or Chii (Chrome DevTools), in a sidebar, put into the page as it loads (the webshell's code, so the same fixes).
+const DT_KEY = "nanite-preview-devtools";
+let mode = load(DT_KEY), on = false;
+const names = (N && N.naniteDevtools && N.naniteDevtools.names) || { eruda: "Eruda", chii: "Chrome DevTools" };
+const list = $("list");
+list.innerHTML = Object.entries(names).map(([k, v]) => '<li><button data-mode="' + k + '">' + v + '</button></li>').join("");
+function renderMenu() { for (const b of list.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode)); $("tools").title = mode ? "Devtools (" + names[mode] + "): reloads the page with them" : "Devtools"; }
+// The sidebar's width: its left edge drags (the frames ignore the pointer meanwhile); kept like the Web Browser tab's.
+const W_KEY = "nanite-preview-devtools-width", grip = $("grip");
+side.style.width = Math.max(240, +(load(W_KEY) || 0) || 420) + "px";
+grip.addEventListener("pointerdown", (e) => {
+  e.preventDefault(); grip.setPointerCapture(e.pointerId); grip.classList.add("on"); document.body.classList.add("dragging");
+  const move = (m) => { const r = document.querySelector(".main").getBoundingClientRect(); side.style.width = Math.round(Math.min(Math.max(240, r.right - m.clientX), r.width - 160)) + "px"; };
+  const up = () => { grip.classList.remove("on"); document.body.classList.remove("dragging"); store(W_KEY, String(parseInt(side.style.width))); grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); grip.removeEventListener("lostpointercapture", up); };
+  grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up); grip.addEventListener("lostpointercapture", up);
+});
+function makeSide() {
+  for (const x of [...side.querySelectorAll("iframe")]) x.remove();
+  const s = document.createElement("iframe"); s.title = mode === "chii" ? "Chrome DevTools" : "Eruda";
+  if (mode === "eruda" && N) s.srcdoc = N.naniteDevtools.erudaDoc;
+  side.appendChild(s); return s;
+}
+function setTools(v) {
+  if (v && !mode) { list.hidden = false; return; }
+  on = v; $("tools").setAttribute("aria-pressed", String(on)); side.classList.toggle("on", on);
+  if (on) makeSide(); else for (const x of [...side.querySelectorAll("iframe")]) x.remove();
+  $("reload").click();
+}
+$("tools").onclick = () => setTools(!on);
+$("toolsmenu").onclick = (e) => { e.stopPropagation(); list.hidden = !list.hidden; };
+list.onclick = (e) => { const b = e.target.closest("button"); if (!b) return; mode = b.dataset.mode; store(DT_KEY, mode); list.hidden = true; renderMenu(); setTools(true); };
+document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) list.hidden = true; });
+renderMenu();
+f.addEventListener("load", () => {
+  if (on && mode && N && N.naniteDevtools) { const s = side.querySelector("iframe") || makeSide(); try { N.naniteDevtools.attach(f, s, mode); } catch (e) { fail("Devtools: " + (e && e.message || e)); } }
+});
+// Chii's front end posts to the window holding its sidebar: this one; the webshell passes it on to the page.
+window.addEventListener("message", (e) => { try { N && N.naniteDevtools && N.naniteDevtools.relay(e); } catch {} });
+
+// Where the frame is now (links, redirects, back / forward): the real address in the bar, the title on the tab.
+setInterval(async () => {
+  let h = ""; try { h = f.contentWindow.location.href; } catch {}
+  if (!h || h === last || h === "about:blank" || !N) return;
+  last = h;
+  let url = h; try { url = await N.naniteUnproxiedUrl(h); } catch {}
+  if (!editing) addr.value = url;
+  let t = ""; try { t = f.contentDocument.title; } catch {}
+  vs.postMessage({ type: "title", title: t, url });
+}, 500);
+go(${JSON.stringify(first)});
+</script></body></html>`;
+  panel.webview.onDidReceiveMessage((m) => {
+    if (m.type === "title") { try { panel.title = m.title || new URL(m.url).host || "Web Browser"; } catch { panel.title = m.title || "Web Browser"; } }
+    else if (m.type === "external" && m.src) vscode.env.openExternal(vscode.Uri.parse(m.src));
+  });
+}
+
 /** A path typed by the user, made absolute: ~ is root's home (/root), a relative path is from `cwd`; . and .. are resolved. */
 function absolute(p, cwd) {
   p = p.trim();
@@ -119,6 +277,15 @@ exports.activate = (context) => {
   }));
   sub(vscode.commands.registerCommand("nanite.openRoot", () => call("openFolder", { path: "/" })));
   sub(vscode.commands.registerCommand("nanite.storage", () => call("storage")));
+  sub(vscode.commands.registerCommand("nanite.disableCodeMode", () => call("disableCodeMode")));
+  // The Web Browser in VS Code: a panel of its own (a webview) whose address bar, back / forward / reload all go through the
+  // webshell's proxy (Scramjet, as in the Web Browser tab): the machine's ports as localhost:PORT, and the web. (VS Code's Simple
+  // Browser would load what is typed in its address bar directly, not through the proxy.)
+  sub(vscode.commands.registerCommand("nanite.openBrowser", async (arg) => {
+    const input = typeof arg === "string" ? arg : await vscode.window.showInputBox({ title: "Open in the Web Browser", value: "localhost:8000",
+      prompt: "A port of the machine (8000, localhost:8000/path) or a web address", validateInput: (v) => (v.trim() ? null : "an address") });
+    if (input) openBrowserPanel(call, addressUrl(input));
+  }));
   sub(vscode.commands.registerCommand("nanite.info", async () => {
     const i = await call("info").catch(() => null);
     if (i) vscode.window.showInformationMessage(`Nanite · ${i.root} · ${i.memory} MiB`);
@@ -128,8 +295,15 @@ exports.activate = (context) => {
   const item = vscode.window.createStatusBarItem("nanite.root", vscode.StatusBarAlignment.Left, 1000);
   item.name = "Nanite root"; item.text = "$(vm) Nanite"; item.command = "nanite.storage"; item.tooltip = "The machine's root filesystem: switch";
   item.show(); sub(item);
-  call("info").then((i) => { item.text = `$(vm) ${i.root}`; item.tooltip = `${i.root} · ${i.memory} MiB · click to switch roots`; }, () => {});
-  // A terminal from the start, as in a desktop VS Code window opened on a folder with the panel up.
-  if (vscode.window.terminals.length === 0) vscode.window.createTerminal(naniteTerminal(w.session, w.cwd)).show(true);
+  call("info").then((i) => {
+    item.text = `$(vm) ${i.root}`; item.tooltip = `${i.root} · ${i.memory} MiB · click to switch roots`;
+    // VS Code mode (the page is this VS Code alone): say how to leave it, and offer the command in the palette.
+    if (!i.codeMode) return;
+    vscode.commands.executeCommand("setContext", "nanite.codeMode", true);
+    vscode.window.showInformationMessage("Visual Studio Code mode is on. To go back at any time, click the button below or run Nanite > Disable VS Code Mode from the command palette.",
+      { modal: true }, "Disable").then((a) => { if (a === "Disable") call("disableCodeMode").catch(() => {}); });
+  }, () => {});
+  // No terminal until one is asked for (Terminal > New Terminal, Ctrl+`): on Nanite a second interactive shell waiting at its
+  // prompt keeps the machine busy (a full core, reports/nanite-bugs.md), so VS Code does not open one by itself.
 };
 exports.deactivate = () => {};

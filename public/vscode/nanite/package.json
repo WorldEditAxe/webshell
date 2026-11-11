@@ -3,30 +3,136 @@
   "displayName": "Nanite machine",
   "description": "The Nanite Webshell's Linux machine as VS Code's remote: its files (nanite:), its terminals, and the remote menu.",
   "publisher": "nanite-webshell",
-  "version": "1.1.1",
-  "engines": { "vscode": "^1.90.0" },
+  "version": "1.5.1",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
   "browser": "./extension.js",
-  "activationEvents": ["onFileSystem:nanite", "onStartupFinished", "onTerminalProfile:nanite.bash"],
+  "activationEvents": [
+    "onFileSystem:nanite",
+    "onStartupFinished",
+    "onTerminalProfile:nanite.bash"
+  ],
   "contributes": {
-    "terminal": { "profiles": [{ "id": "nanite.bash", "title": "Nanite shell", "icon": "terminal-linux" }] },
+    "terminal": {
+      "profiles": [
+        {
+          "id": "nanite.bash",
+          "title": "Nanite shell",
+          "icon": "terminal-linux"
+        }
+      ]
+    },
     "resourceLabelFormatters": [
-      { "scheme": "nanite", "authority": "*", "formatting": { "label": "${path}", "separator": "/", "tildify": false, "workspaceSuffix": "Nanite" } }
+      {
+        "scheme": "nanite",
+        "authority": "*",
+        "formatting": {
+          "label": "${path}",
+          "separator": "/",
+          "tildify": false,
+          "workspaceSuffix": "Nanite"
+        }
+      }
     ],
     "commands": [
-      { "command": "nanite.newTerminal", "title": "New Terminal", "category": "Nanite", "icon": "$(terminal)" },
-      { "command": "nanite.openFolder", "title": "Open Folder on the Machine…", "category": "Nanite", "icon": "$(folder-opened)" },
-      { "command": "nanite.openRoot", "title": "Open / (the Whole Filesystem)", "category": "Nanite", "icon": "$(root-folder)" },
-      { "command": "nanite.storage", "title": "Switch Root Filesystem…", "category": "Nanite", "icon": "$(server-environment)" },
-      { "command": "nanite.info", "title": "Show Machine Info", "category": "Nanite", "icon": "$(vm)" }
+      {
+        "command": "nanite.newTerminal",
+        "title": "New Terminal",
+        "category": "Nanite",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "nanite.openFolder",
+        "title": "Open Folder on the Machine\u2026",
+        "category": "Nanite",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "nanite.openRoot",
+        "title": "Open / (the Whole Filesystem)",
+        "category": "Nanite",
+        "icon": "$(root-folder)"
+      },
+      {
+        "command": "nanite.storage",
+        "title": "Switch Root Filesystem\u2026",
+        "category": "Nanite",
+        "icon": "$(server-environment)"
+      },
+      {
+        "command": "nanite.info",
+        "title": "Show Machine Info",
+        "category": "Nanite",
+        "icon": "$(vm)"
+      },
+      {
+        "command": "nanite.disableCodeMode",
+        "title": "Disable VS Code Mode",
+        "category": "Nanite",
+        "icon": "$(screen-normal)"
+      },
+      {
+        "command": "nanite.openBrowser",
+        "title": "Open Web Browser\u2026",
+        "category": "Nanite",
+        "icon": "$(globe)"
+      }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "nanite.disableCodeMode",
+          "when": "nanite.codeMode"
+        }
+      ],
       "statusBar/remoteIndicator": [
-        { "command": "nanite.newTerminal", "group": "remote_10_nanite@1" },
-        { "command": "nanite.openFolder", "group": "remote_10_nanite@2" },
-        { "command": "nanite.openRoot", "group": "remote_10_nanite@3" },
-        { "command": "nanite.storage", "group": "remote_10_nanite@4" },
-        { "command": "nanite.info", "group": "remote_10_nanite@5" }
+        {
+          "command": "nanite.newTerminal",
+          "group": "remote_10_nanite@1"
+        },
+        {
+          "command": "nanite.openBrowser",
+          "group": "remote_10_nanite@1"
+        },
+        {
+          "command": "nanite.openFolder",
+          "group": "remote_10_nanite@2"
+        },
+        {
+          "command": "nanite.openRoot",
+          "group": "remote_10_nanite@3"
+        },
+        {
+          "command": "nanite.storage",
+          "group": "remote_10_nanite@4"
+        },
+        {
+          "command": "nanite.info",
+          "group": "remote_10_nanite@5"
+        },
+        {
+          "command": "nanite.disableCodeMode",
+          "group": "remote_10_nanite@6",
+          "when": "nanite.codeMode"
+        }
       ]
-    }
+    },
+    "configurationDefaults": {
+      "terminal.integrated.defaultProfile.linux": "Nanite shell",
+      "terminal.integrated.defaultProfile.osx": "Nanite shell",
+      "terminal.integrated.defaultProfile.windows": "Nanite shell"
+    },
+    "keybindings": [
+      {
+        "key": "ctrl+`",
+        "command": "nanite.newTerminal",
+        "when": "terminalCount == 0"
+      },
+      {
+        "key": "ctrl+shift+`",
+        "command": "nanite.newTerminal"
+      }
+    ]
   }
 }

@@ -25,12 +25,15 @@ int main(int argc, char **argv) {
         if (poll(pf, 2, 1000) < 0) usleep(16000);
         if (pf[1].revents & (POLLHUP | POLLERR)) return 0;          /* the X server went away */
         while (XPending(d)) { XEvent x; XNextEvent(d, &x); }
-        ssize_t n;
+        ssize_t n; int got = 0;
         while ((n = read(fd, ev, sizeof ev)) > 0) {
+            got = 1;
             for (ssize_t i = 0; i < n / (ssize_t)sizeof ev[0]; i++)
                 if (ev[i].type == EV_KEY && ev[i].value != 2 && ev[i].code < 248)   /* press / release; X repeats keys itself */
                     XTestFakeKeyEvent(d, ev[i].code + 8, ev[i].value != 0, CurrentTime);
             XFlush(d);
         }
+        /* Nanite's event0 can report POLLIN with nothing to read: without this pause the loop spins a whole CPU. */
+        if (!got) usleep(10000);
     }
 }

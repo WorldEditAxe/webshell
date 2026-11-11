@@ -8,9 +8,10 @@
   import { Keyboard, Lock, MousePointer2, Move, Maximize } from "@lucide/svelte";
   import type { Nanite } from "./machine";
 
-  let { nv, active, screen, mouse = "relative", onfit, ondraw }: {
+  let { nv, active, screen, mouse = "relative", follow = true, onfit, ondraw }: {
     nv: Nanite | null; active: boolean; screen: { width: number; height: number }; mouse?: "relative" | "absolute";
-    onfit: () => void; ondraw?: () => void;
+    /** The screen follows the tab's size (Nanite's resizeScreen), unless the settings fix its size. */
+    follow?: boolean; onfit: () => void; ondraw?: () => void;
   } = $props();
   let canvas: HTMLCanvasElement, area: HTMLDivElement;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -23,9 +24,24 @@
     const r = area.getBoundingClientRect();
     return { width: Math.max(320, Math.floor(r.width / 8) * 8), height: Math.max(200, Math.floor(r.height / 8) * 8) };
   }
-  // The window was resized since the machine started: offer a restart at the new size.
   const fitW = $derived(Math.floor(areaW / 8) * 8), fitH = $derived(Math.floor(areaH / 8) * 8);
-  const stale = $derived(screen.width > 0 && areaW > 0 && (Math.abs(fitW - screen.width) >= 16 || Math.abs(fitH - screen.height) >= 16));
+  // Nanite's resizeScreen: the guest's display connector offers the tab's size as its preferred mode, as a monitor whose
+  // resolution changed (a desktop on /dev/dri/card0 takes it; see ~/screen/install-desktop.sh). Sent once the size settles.
+  const live = $derived(!!nv && typeof nv.resizeScreen === "function");
+  let sent = "", settle = 0;
+  $effect(() => {
+    const w = fitW, h = fitH, m = nv;
+    if (!follow || !live || !m || w < 320 || h < 200) return;
+    clearTimeout(settle);
+    settle = window.setTimeout(() => {
+      if (`${w}x${h}` === sent) return;
+      sent = `${w}x${h}`;
+      try { m.resizeScreen!(w, h, 1); } catch (e) { console.warn("resizeScreen:", e); }
+    }, 150);
+  });
+  $effect(() => { void nv; sent = ""; });
+  // Without resizeScreen (an older Nanite), or with the size fixed in the settings: offer a restart at the tab's size.
+  const stale = $derived(!(follow && live) && screen.width > 0 && areaW > 0 && (Math.abs(fitW - screen.width) >= 16 || Math.abs(fitH - screen.height) >= 16));
 
   /** A frame from the machine (painted at the next animation frame, while this tab is shown). The first one with anything on
    *  it is reported (ondraw), so the page can point at a closed monitor. */
@@ -132,7 +148,7 @@
     onmousedown={mousedown} onmouseup={mouseup} onpointermove={mousemove} oncontextmenu={(e) => e.preventDefault()}></canvas>
 
   <div class="pointer-events-none absolute top-2 right-2 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 {stale ? '!opacity-100' : ''} {locked ? '!opacity-0' : ''}">
-    <span class={chip} title="/dev/fb0">{size || `${screen.width}×${screen.height}`}</span>
+    <span class={chip} title={follow && live ? "The guest's screen: its display offers the tab's size (xrandr --output Virtual-1 --auto takes it)" : "/dev/fb0"}>{size || `${screen.width}×${screen.height}`}</span>
     <span class={chip} title={mouse === "absolute" ? "Absolute mouse: the cursor follows the pointer" : locked ? "Mouse captured: Esc releases it" : "Relative mouse: click to capture"}>
       {#if mouse === "absolute"}<MousePointer2 size={12} />{:else if locked}<Lock size={12} class="text-sakura" />{:else}<Move size={12} />{/if}
       <Keyboard size={12} class={focused ? "text-sakura" : ""} />

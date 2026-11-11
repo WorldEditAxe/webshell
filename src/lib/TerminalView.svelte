@@ -17,4 +17,5 @@
   });
 </script>
 
-<div bind:this={el} class="absolute inset-0 pt-2 pl-2.5" class:invisible={!active} role="tabpanel"></div>
+<!-- overflow-hidden: nothing ever draws past the pane (Shell.refit fits the rows to what is drawn). -->
+<div bind:this={el} class="absolute inset-0 overflow-hidden pt-2 pl-2.5" class:invisible={!active} role="tabpanel"></div>

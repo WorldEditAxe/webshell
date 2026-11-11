@@ -32,6 +32,27 @@ function thock(): void {
   } catch {}
 }
 
+/** A pane snapping into place (drag and drop of panes, App.svelte): a short, bright click, a tick falling in pitch over a burst of
+ *  high-passed noise. `level` 0..1 (a drop zone reached: softer; the drop: full). */
+let lastSnap = 0;
+export function snap(level = 1): void {
+  const now = performance.now(); if (now - lastSnap < 40) return; lastSnap = now;
+  try {
+    audio ??= new AudioContext();
+    const a = audio, t = a.currentTime, out = a.createGain();
+    out.gain.value = 0.45 * level; out.connect(a.destination);
+    const tick = a.createOscillator(), tg = a.createGain();
+    tick.type = "triangle"; tick.frequency.setValueAtTime(2400, t); tick.frequency.exponentialRampToValueAtTime(900, t + 0.03);
+    tg.gain.setValueAtTime(0.0001, t); tg.gain.exponentialRampToValueAtTime(0.6, t + 0.002); tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    tick.connect(tg).connect(out); tick.start(t); tick.stop(t + 0.06);
+    const n = a.createBuffer(1, Math.ceil(a.sampleRate * 0.008), a.sampleRate), d = n.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 3;
+    const click = a.createBufferSource(), hp = a.createBiquadFilter(), cg = a.createGain();
+    hp.type = "highpass"; hp.frequency.value = 2500; cg.gain.value = 0.5; click.buffer = n;
+    click.connect(hp).connect(cg).connect(out); click.start(t);
+  } catch {}
+}
+
 export class Shell {
   readonly term: Terminal;
   private readonly fitter = new FitAddon();
@@ -66,8 +87,21 @@ export class Shell {
   }
   /** Fits the terminal to its box (skipped while the box has no size) and reports the size. */
   refit(): void {
-    if (!this.term.element?.parentElement?.clientWidth) return;
+    const box = this.term.element?.parentElement;
+    if (!box?.clientWidth) return;
     try { this.fitter.fit(); } catch { return; }
+    // The fit counts rows by the computed line height (font size × line height, e.g. 14.56 px), but each row is drawn on whole
+    // device pixels: over many rows the drawn screen comes out taller than the box, and the last row would be cut. Measure what
+    // was drawn and take rows off until it fits.
+    const screen = this.term.element!.querySelector(".xterm-screen") as HTMLElement | null;
+    if (screen && this.term.rows > 1) {
+      const cs = getComputedStyle(box), avail = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const drawn = screen.getBoundingClientRect().height;
+      if (drawn > avail + 0.5) {
+        const rowH = drawn / this.term.rows, rows = Math.max(1, Math.floor(avail / rowH));
+        if (rows < this.term.rows) this.term.resize(this.term.cols, rows);
+      }
+    }
     this.onResize(this.term.cols, this.term.rows);
   }
   scheduleFit(): void { cancelAnimationFrame(this.raf); this.raf = requestAnimationFrame(() => this.refit()); }

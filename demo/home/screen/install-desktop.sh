@@ -1,6 +1,7 @@
 #!/bin/bash
-# install-desktop.sh: a lightweight desktop on the virtual screen. Xorg (fbdev on /dev/fb0, evdev on
-# /dev/input/event0 + event1), the JWM window manager with its taskbar and menu, and xterm. About 24 MB download, a few minutes here.
+# install-desktop.sh: a lightweight desktop on the virtual screen. Xorg (modesetting on /dev/dri/card0, or fbdev on /dev/fb0 with
+# an older Nanite; evdev on /dev/input/event1), the JWM window manager with its taskbar and menu, and xterm. About 24 MB download,
+# a few minutes here. On /dev/dri/card0 the desktop follows the Display tab's size (nanite-follow-screen).
 # Then: startdesktop (open the monitor tab in the top bar, and click the screen to use mouse + keyboard).
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -22,7 +23,7 @@ EOF
 dpkg-deb -b "$stub" "$stub.deb" >/dev/null && dpkg -i "$stub.deb" && rm -rf "$stub" "$stub.deb"
 
 apt-get install -y --no-install-recommends xserver-xorg-core xserver-xorg-video-fbdev xserver-xorg-input-evdev xinit jwm xterm \
-  libxtst6
+  libxtst6 x11-xserver-utils
 
 # No udev and no VTs here: name the mouse outright, and run Xorg on a seat other than seat0 (it then leaves VTs alone). The
 # keyboard is not an Xorg device: evdev cannot open Nanite's event0, so nanite-xkeys (/usr/local/src/nanite-xkeys) types its keys
@@ -36,16 +37,6 @@ EndSection
 Section "Module"
     Disable "glx"
 EndSection
-Section "Device"
-    Identifier "fb"
-    Driver "fbdev"
-    Option "fbdev" "/dev/fb0"
-EndSection
-Section "Screen"
-    Identifier "screen"
-    Device "fb"
-    DefaultDepth 24
-EndSection
 Section "InputDevice"
     Identifier "mouse"
     Driver "evdev"
@@ -54,12 +45,54 @@ Section "InputDevice"
     Option "AccelerationProfile" "-1"
     Option "AccelerationScheme" "none"
 EndSection
+EOF
+# The screen: Nanite's display connector (/dev/dri/card0, Virtual-1), whose preferred mode is the Display tab's size, or the fixed
+# /dev/fb0 of an older Nanite. startdesktop picks one (-config). No glamor: there is no GPU.
+for dev in kms fbdev; do
+  if [ $dev = kms ]; then drv='Driver "modesetting"
+    Option "kmsdev" "/dev/dri/card0"
+    Option "AccelMethod" "none"'; else drv='Driver "fbdev"
+    Option "fbdev" "/dev/fb0"'; fi
+  cat > /etc/X11/nanite-$dev.conf <<EOF
+Section "Device"
+    Identifier "screen-device"
+    $drv
+EndSection
+Section "Screen"
+    Identifier "screen"
+    Device "screen-device"
+    DefaultDepth 24
+EndSection
 Section "ServerLayout"
     Identifier "layout"
     Screen "screen"
     InputDevice "mouse" "CorePointer"
 EndSection
 EOF
+done
+
+# The Display tab was resized: Nanite offers its size as Virtual-1's preferred mode (the first line of modes). There is no udev to
+# pass the hotplug on, so this watches the connector and sets the preferred mode (xrandr re-reads the connector).
+cat > /usr/local/bin/nanite-follow-screen <<'EOF'
+#!/bin/sh
+modes=/sys/class/drm/card0-Virtual-1/modes
+[ -r "$modes" ] || exit 0
+# Right after the change, X can still have the old mode list and --auto keeps the old size: it is done again until X's screen
+# is the wanted size (at most 20 tries for one size).
+last="" tries=0
+while :; do
+  want=""; read -r want < "$modes" 2>/dev/null  # a builtin: no process per check
+  if [ -n "$want" ] && [ "$want" != "$last" ]; then
+    xrandr --output Virtual-1 --auto >/dev/null 2>&1
+    now=$(xrandr 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p')
+    tries=$((tries + 1))
+    # JWM follows the new size itself (RandR): its taskbar moves to the new bottom edge. (jwm -restart here ends JWM.)
+    if [ "$now" = "$want" ] || [ $tries -ge 20 ]; then last=$want tries=0; fi
+  fi
+  sleep 1
+done
+EOF
+chmod +x /usr/local/bin/nanite-follow-screen
 
 # xterm in the webshell's colours (Afterglow with a sakura tint).
 cat > /etc/X11/nanite-xterm.ad <<'EOF'
@@ -134,6 +167,7 @@ cat > /usr/local/lib/nanite-desktop/session <<'EOF'
 #!/bin/sh
 export XENVIRONMENT=/etc/X11/nanite-xterm.ad
 /usr/local/bin/nanite-xkeys &
+/usr/local/bin/nanite-follow-screen &
 exec jwm
 EOF
 chmod +x /usr/local/lib/nanite-desktop/session
@@ -143,7 +177,9 @@ cat > /usr/local/bin/startdesktop <<'EOF'
 # startdesktop: Xorg + JWM on the virtual screen. Quit with the JWM menu (Exit) or Ctrl+C here.
 [ -e /dev/fb0 ] || { echo "startdesktop: no /dev/fb0"; exit 1; }
 echo "desktop: open the monitor tab (top bar) and click the screen; Esc releases the mouse."
-exec xinit /usr/local/lib/nanite-desktop/session -- /usr/lib/xorg/Xorg :0 -seat seat1 -nolisten tcp -noreset -logfile /tmp/Xorg.0.log
+[ -e /dev/dri/card0 ] && conf=nanite-kms.conf || conf=nanite-fbdev.conf
+exec xinit /usr/local/lib/nanite-desktop/session -- /usr/lib/xorg/Xorg :0 -seat seat1 -nolisten tcp -noreset -config $conf \
+  -logfile /tmp/Xorg.0.log
 EOF
 chmod +x /usr/local/bin/startdesktop
 echo; echo "Installed. Run: startdesktop"

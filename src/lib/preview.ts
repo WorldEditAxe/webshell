@@ -17,7 +17,7 @@ type Frame = {
   go(url: string): void; back(): void; forward(): void; reload(): void;
   addEventListener(type: "urlchange" | "navigate", f: (e: { url: string }) => void): void;
 };
-type Controller = { init(): Promise<void>; createFrame(f?: HTMLIFrameElement): Frame; decodeUrl(u: string): string };
+type Controller = { init(): Promise<void>; createFrame(f?: HTMLIFrameElement): Frame; decodeUrl(u: string): string; encodeUrl(u: string | URL): string };
 declare global { var $scramjetLoadController: () => { ScramjetController: new (c: object) => Controller } }
 
 let ready: Promise<Controller> | null = null, setWisp = "";
@@ -78,6 +78,17 @@ async function repairDb(): Promise<void> {
     r.onblocked = () => reject(new Error("the proxy's database is in use: reload the page once"));
   });
 }
+/** The address of `url` through the proxy (the machine's pages and the web, as the Web Browser tab loads them): for VS Code's
+ *  Simple Browser, forwarded ports and localhost links (public/vscode/index.html and the nanite extension ask for it). */
+export async function proxiedUrl(url: string): Promise<string> {
+  const c = await proxy();
+  return new URL(c.encodeUrl(url), location.href).href;
+}
+/** The real address of a proxied one (what the page in a proxied frame is at). */
+export async function unproxiedUrl(url: string): Promise<string> {
+  const c = await proxy();
+  try { return c.decodeUrl(url); } catch { return url; }
+}
 /** Scramjet, ready to make frames (loaded the first time a Preview tab needs it). */
 export function proxy(): Promise<Controller> {
   const w = wisp();
@@ -117,27 +128,72 @@ const CHII = "https://cdn.jsdelivr.net/npm/chii@1.15.5/public";
 // it; its panel is in the sidebar here, so the rule only changes the page's layout: it is removed as soon as it is added.
 const CHII_RULE = /^\s*html,\s*body\s*\{\s*overflow-y:\s*auto;\s*box-sizing:\s*border-box;?\s*\}\s*$/;
 
-type PageWindow = Window & { eruda?: { init(o: object): void }; ChiiDevtoolsIframe?: HTMLIFrameElement };
-const relays = new Map<Window, () => Window | null>();   // Chii front end -> the page it inspects
+type PageWindow = Window & { eruda?: { init(o: object): void } };
+// Each Web Browser tab's Chii: its page frame, its sidebar frame now (the sidebar's frame is re-created when the devtools are turned
+// on or switched, possibly after the page has loaded), and the front end's address. Chii keeps the frame it was given at its
+// start, so it gets a stand-in (`frame`) that always means the sidebar's frame now; a new sidebar frame gets the front end too.
+type Chii = { page: HTMLIFrameElement; side: () => HTMLIFrameElement | undefined; url: string; frame: object };
+const chiis = new Map<HTMLIFrameElement, Chii>();
+
+// The page runs under Scramjet, which rewrites every script the page loads and hooks the page's DOM and URL APIs. The devtools
+// must not be rewritten (Chii breaks: "function call() is not a constructor"), so their <script> is made and inserted with this
+// window's own DOM functions, which Scramjet has not hooked: the browser loads it straight from the CDN and runs it as it is.
+const native = {
+  create: Document.prototype.createElement,
+  attr: Element.prototype.setAttribute,
+  src: Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, "src")!.set!,
+  append: Node.prototype.appendChild,
+  frameSrc: Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "src")!.set!,
+};
+// Scramjet's URL.createObjectURL in the page turns blob:<this origin>/ID into blob:<the proxied site>/ID, which nothing can load.
+// Chii opens its front end at such a URL: the stand-in takes it back to the real one.
+const realBlob = (v: unknown) => String(v).replace(/^blob:[^/]+\/\/[^/]+\//, `blob:${location.origin}/`);
+function chiiOf(page: HTMLIFrameElement, side: () => HTMLIFrameElement | undefined): Chii {
+  let c = chiis.get(page);
+  if (c) { c.side = side; return c; }
+  const show = (cc: Chii) => { const f = cc.side(); if (f && cc.url && f.getAttribute("src") !== cc.url) native.frameSrc.call(f, cc.url); };
+  const cc: Chii = { page, side, url: "", frame: {} };
+  cc.frame = {
+    get src() { return cc.url; },
+    set src(v: unknown) { cc.url = realBlob(v); show(cc); },
+    setAttribute(name: string, v: string) { if (name.toLowerCase() === "src") { cc.url = realBlob(v); show(cc); } },
+    getAttribute(name: string) { return name.toLowerCase() === "src" ? cc.url : null; },
+    get contentWindow() { return cc.side()?.contentWindow ?? null; },
+    style: {},
+  };
+  chiis.set(page, cc);
+  return cc;
+}
+/** A (new) sidebar frame for the tab of `page`: it shows the Chii front end the page already has, if any. */
+export function sidebarChanged(page: HTMLIFrameElement | undefined): void {
+  const c = page && chiis.get(page), f = c?.side();
+  if (c && f && c.url && f.getAttribute("src") !== c.url) native.frameSrc.call(f, c.url);
+}
 
 /** Puts the devtools `mode` into the page now shown in `page`, drawing into the sidebar frame `side`. */
-export function attachDevtools(page: HTMLIFrameElement, side: HTMLIFrameElement, mode: Devtools): void {
+export function attachDevtools(page: HTMLIFrameElement, sideNow: () => HTMLIFrameElement | undefined, mode: Devtools): void {
   let w: PageWindow, doc: Document;
   try { w = page.contentWindow as PageWindow; doc = w.document; } catch { return; }
   if (!doc?.documentElement || (w as unknown as { __naniteDevtools?: boolean }).__naniteDevtools) return;
   (w as unknown as { __naniteDevtools?: boolean }).__naniteDevtools = true;
-  const script = doc.createElement("script");
+  const script = native.create.call(doc, "script") as HTMLScriptElement;
   if (mode === "chii") {
-    w.ChiiDevtoolsIframe = side;
-    if (side.contentWindow) relays.set(side.contentWindow, () => page.contentWindow);
+    const c = chiiOf(page, sideNow);
+    c.url = "";   // a new page: its Chii opens a new front end
+    (w as unknown as { ChiiDevtoolsIframe: object }).ChiiDevtoolsIframe = c.frame;
     new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeName === "STYLE" && CHII_RULE.test(n.textContent ?? "")) (n as Element).remove(); })
       .observe(doc.documentElement, { childList: true, subtree: true });
-    script.setAttribute("embedded", "true"); script.setAttribute("cdn", CHII);
-    script.src = `${CHII}/target.js`;
+    native.attr.call(script, "embedded", "true"); native.attr.call(script, "cdn", CHII);
+    native.src.call(script, `${CHII}/target.js`);
+    // Chii finds its own <script> by its src (".../target.js") to read embedded and cdn from it. In the page, Scramjet's src getter
+    // "un-proxies" every address by cutting off as many characters as the proxy's prefix (this origin + /preview/) is long: on a
+    // long origin (a tunnel's) nothing of the CDN address is left, Chii finds no script and starts without its sidebar. This
+    // script tells its real address itself.
+    Object.defineProperty(script, "src", { configurable: true, get: () => `${CHII}/target.js` });
   } else {
-    script.src = ERUDA;
+    native.src.call(script, ERUDA);
     script.onload = () => {
-      const sd = side.contentDocument;
+      const sd = sideNow()?.contentDocument;
       if (!sd?.body) return;
       sd.body.replaceChildren();
       const el = sd.createElement("div");
@@ -145,9 +201,24 @@ export function attachDevtools(page: HTMLIFrameElement, side: HTMLIFrameElement,
       w.eruda?.init({ container: el, inline: true, useShadowDom: false, autoScale: false, defaults: { theme: "Dark", displaySize: 100 } });
     };
   }
-  (doc.head ?? doc.documentElement).appendChild(script);
+  native.append.call(doc.head ?? doc.documentElement, script);
 }
-window.addEventListener("message", (e) => {
+/** Passes a Chii front end's message (posted to the window holding its sidebar) on to the page it inspects. */
+export function relayDevtools(e: MessageEvent): void {
   if (typeof e.data !== "string" || e.origin !== location.origin || !e.source) return;
-  relays.get(e.source as Window)?.()?.postMessage(e.data, "*");
-});
+  const c = [...chiis.values()].find((x) => x.side()?.contentWindow === e.source), page = c?.page.contentWindow;
+  if (!page) return;
+  // Scramjet's postMessage in the page would wrap the message as if from the proxied site, and its MessageEvent then reports
+  // that site as the origin, which Chii's check (origin == this page's) refuses. So: this window's own postMessage, with the
+  // message already in Scramjet's wrapper and this page's origin: the page sees the message as it was, from where it came.
+  const post = window.postMessage as (this: Window, m: unknown, o: string) => void;
+  post.call(page, { $scramjet$messagetype: "window", $scramjet$origin: location.origin, $scramjet$data: e.data }, "*");
+}
+window.addEventListener("message", relayDevtools);
+
+/** For VS Code's Web Browser panel (public/vscode/nanite/extension.js, a webview of this origin): the Web Browser tab's devtools. */
+export const devtoolsForFrames = {
+  names: DEVTOOLS, erudaDoc: ERUDA_DOC,
+  attach: (page: HTMLIFrameElement, side: HTMLIFrameElement, mode: Devtools) => attachDevtools(page, () => side, mode),
+  relay: relayDevtools,
+};

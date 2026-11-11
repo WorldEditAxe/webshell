@@ -1,5 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Lucide "terminal" (ISC licence) on a sakura tile -->
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f9d2de"/><stop offset="1" stop-color="#d98aa8"/></linearGradient></defs>
-<rect width="512" height="512" rx="116" fill="url(#g)"/>
-<g transform="translate(96 96) scale(13.333)" fill="none" stroke="#1a1619" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Nanite Webshell: a nanite cell (hexagon) holding a shell prompt -->
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c2030"/><stop offset="1" stop-color="#0c0e15"/></linearGradient>
+<linearGradient id="cell" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#8b7cf6"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M256 82 L407 169 L407 343 L256 430 L105 343 L105 169 Z" fill="none" stroke="url(#cell)" stroke-width="36" stroke-linejoin="round"/>
+<path d="M190 204 L254 256 L190 308" fill="none" stroke="#f4f6fb" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M276 318 H330" stroke="#5eead4" stroke-width="36" stroke-linecap="round"/>
 </svg>

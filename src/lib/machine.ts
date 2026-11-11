@@ -1,11 +1,13 @@
 // The machine: Ubuntu 26.04 on Nanite (x86-64 in WebAssembly, no kernel), from the Spark Linux package host; its network goes
 // out through the nearest of Spark Linux's Wisp relays. Also the ICMP bridge for ping, and the disk's save / load / reset.
 import type { Launch } from "./settings";
+import { locate } from "./wisp";
 
 // The parts of Nanite's page API (lib/nanitevisor/nanite.js, nanite.ts in its source map) this page uses.
 export interface UdpSocket {
   on(ev: "message", h: (bytes: Uint8Array, from: { address: string; port: number }) => void): UdpSocket;
   send(bytes: ArrayLike<number> | ArrayBuffer, port: number, address: string): Promise<void>;
+  close(): void;
 }
 export interface Nanite {
   rootMounted: boolean;
@@ -16,6 +18,9 @@ export interface Nanite {
     fetch(port: number, path: string, init?: { method?: string; headers?: HeadersInit; body?: string | Uint8Array | null }, opts?: { timeout?: number }): Promise<Response>;
   };
   resize(cols: number, rows: number, termId?: number): void;
+  /** The display's size changed (newer Nanite): the guest's DRM connector offers width x height as its preferred mode, with a
+   *  hotplug event; the picture takes the size the guest sets. /dev/fb0 keeps its size. */
+  resizeScreen?(width: number, height: number, devicePixelRatio?: number): void;
   stdin(bytes: Uint8Array, termId?: number): void;
   openTerminal(argv: string[], env?: string[], size?: { cols?: number; rows?: number }): Promise<number>;
   closeTerminal(termId: number): void;
@@ -27,7 +32,17 @@ export interface Nanite {
   mouse(m: { dx?: number; dy?: number; button?: number; down?: boolean }): void;
   terminate(): void;
 }
+/** Nanite's "memoryevent": memory ran out (the machine's cap, a process's cap, or the browser refused), and what the OOM killer ended. */
+export interface MemoryEvent {
+  kind: "limit" | "process" | "host";
+  op: string; pid: number; name?: string;
+  requested: number; inUse: number; limit: number | null;
+  killed: { pid: number; name?: string; resident: number; oomScoreAdj: number }[];
+  /** freed: the request got its memory (after kills); denied: it failed; over: the machine is over its cap (no OOM killer). */
+  result: "freed" | "denied" | "over";
+}
 export interface Hooks {
+  onMemoryEvent(e: MemoryEvent): void;
   onOutput(fd: number, bytes: Uint8Array, termId?: number): void;
   onFrame(w: number, h: number, pixels: Uint8ClampedArray): void;
   onTerminalExit(termId: number, code: number): void;
@@ -58,7 +73,7 @@ export interface Shells {
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** The shells for a root, by its login shell.
  *  The shell is the session leader itself, never cd-and-exec, in terminals: when a terminal's session leader execs, Nanite loses
- *  its output (reports/nanite-bugs.md). fish goes to the folder with --init-command; bash from PROMPT_COMMAND, before its first
+ *  its output. fish goes to the folder with --init-command; bash from PROMPT_COMMAND, before its first
  *  prompt; sh starts in /. Login shells with --login, not exec -l: Nanite does not keep the "-" that exec -l puts in front of
  *  argv[0]. The console (Nanite's run) may exec. MOTD_SHOWN is set in further terminals (the motd scripts show it at every login unless ~/.hidemotd exists). */
 export function shells(kind: Shells["kind"]): Shells {
@@ -81,31 +96,12 @@ export function shells(kind: Shells["kind"]): Shells {
   return { kind, console: ["/bin/sh", "-c", 'cd "$HOME"; exec /bin/sh -l'], env, term: () => ["/bin/sh", "-l"], termEnv: () => [...env, "MOTD_SHOWN=1"] };
 }
 
-// Wisp: the nearest of Spark Linux's regional relays (wisp-anycast.sparkpowered.org is one relay, Kansas City, behind
-// Cloudflare). Asks the /closest router, which locates the browser by its IP; if that fails, the page picks by the browser's
-// time zone. A Wisp URL in the settings (or ?wisp=) picks a relay outright.
-const WISP_ROUTER = "https://wisp-anycast.sparkpowered.org/closest";
-const WISP_NODES: Record<string, string> = { mci: "Kansas City", nrt: "Tokyo", fra: "Frankfurt", sin: "Singapore" };
-function nodeByTimeZone(): string {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
-  if (/^Asia\/(Tokyo|Seoul|Pyongyang|Shanghai|Chongqing|Harbin|Hong_Kong|Macau|Taipei|Vladivostok|Sakhalin|Magadan|Kamchatka|Ulaanbaatar)/.test(tz)) return "nrt";
-  if (/^(Asia|Australia|Indian|Pacific\/(Auckland|Fiji|Guam|Port_Moresby|Noumea|Chatham))/.test(tz) &&
-      !/^Asia\/(Dubai|Muscat|Riyadh|Qatar|Bahrain|Kuwait|Baghdad|Tehran|Jerusalem|Tel_Aviv|Beirut|Damascus|Amman|Nicosia|Famagusta|Gaza|Hebron|Aden|Baku|Tbilisi|Yerevan|Istanbul)/.test(tz)) return "sin";
-  if (/^(Europe|Africa|Atlantic\/(Azores|Madeira|Canary|Faroe|Reykjavik)|Asia|Arctic)/.test(tz)) return "fra";
-  return "mci";
-}
-type WispNode = { url?: unknown; up?: boolean; region?: string; name?: string; distance_km: number };
-export async function nearestWisp(custom: string): Promise<{ url: string; name: string }> {
-  if (custom) return { url: custom, name: new URL(custom).host };
-  try {
-    const j = await (await fetch(WISP_ROUTER, { signal: AbortSignal.timeout(2000) })).json();
-    // The node nearest this browser's IP; if it is down, the nearest of the others that is up.
-    const pick = [j?.proxy, ...((j?.alternatives ?? []) as WispNode[]).sort((a, b) => a.distance_km - b.distance_km)]
-      .find((n: WispNode | undefined) => n?.up !== false && typeof n?.url === "string" && n.url.startsWith("wss://"));
-    if (pick) return { url: pick.url, name: pick.region ?? pick.name ?? new URL(pick.url).host };
-  } catch {}
-  const id = nodeByTimeZone();
-  return { url: `wss://${id}-wisp-node.sparkpowered.org/`, name: WISP_NODES[id]! };
+// Wisp: "server" mode, the Wisp server in the settings (or ?wisp=); "router" mode, the nearest relay a Wispr router names (lib/wisp.ts:
+// Spark's /closest router by default, else the time zone).
+export async function nearestWisp(l: Pick<Launch, "wispMode" | "wisp" | "wispRouter">): Promise<{ url: string; name: string }> {
+  if (l.wispMode === "server" && l.wisp) return { url: l.wisp, name: new URL(l.wisp).host };
+  const { pick } = await locate(l.wispRouter);
+  return { url: pick.url, name: pick.name };
 }
 
 // Wisp that reconnects. Nanite's Wisp client (in its worker) opens one WebSocket and, when it drops, fails the open connections
@@ -198,6 +194,9 @@ export function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen
     memoryLimit: l.memory * MiB, processMemoryLimit: (l.processMemory ?? Math.min(l.memory, 256)) * MiB,
     ...(l.dcache != null ? { dcacheBytes: l.dcache * MiB } : {}),
     cacheBytes: (l.diskCache ?? 16) * MiB,   // Nanite's default is 64 MiB of the page's memory, outside the machine's memory cap
+    oomKiller: l.oomKiller ?? true, singleMemory: l.memoryMode === "single",
+    ...(l.memoryMode === "single" && l.slotSize ? { slotSize: l.slotSize * MiB } : {}),
+    cacheBackend: l.cacheBackend ?? "disk", rootStorage: l.rootStorage ?? "disk", prewarm: l.prewarm ?? true, jspi: l.jspi ?? true,
     rootName: disk, ...hooks,
   });
 }
@@ -348,6 +347,31 @@ export async function openSave(file: File, disk: string): Promise<(progress: (fi
     }
     return { files: n, bytes };
   };
+}
+
+/** Marks the disk as open in this tab (a shared Web Lock, one per tab) while its machine runs: another tab of the webshell on the
+ *  same disk is then known (two machines on one disk can overwrite each other's changes, and a reset cannot delete files the other
+ *  tab has open). Resolves with whether no other tab had it open, and the function that lets it go. */
+const diskLock = (disk: string) => `nanite-webshell:disk:${disk}`;
+export async function holdDisk(disk: string): Promise<{ held: boolean; release: () => void }> {
+  if (!navigator.locks) return { held: true, release: () => {} };
+  const alone = !(await diskInUse(disk));
+  let release = () => {};
+  await new Promise<void>((got) => {
+    void navigator.locks.request(diskLock(disk), { mode: "shared" }, () => { got(); return new Promise<void>((r) => { release = r; }); });
+  });
+  return { held: alone, release: () => release() };
+}
+/** Whether a tab has the disk open (holdDisk); this tab's own hold counts too, so let it go first. */
+export async function diskInUse(disk: string): Promise<boolean> {
+  const q = await navigator.locks?.query?.();
+  return !!q?.held?.some((l) => l.name === diskLock(disk));
+}
+/** A reset whose delete failed (a file of the disk still open as the page went): done at the next start, before Nanite opens it. */
+const PENDING_RESET = "nanite-webshell:reset-pending";
+export const markReset = (disk: string) => { try { localStorage.setItem(PENDING_RESET, disk); } catch {} };
+export function takeReset(disk: string): boolean {
+  try { if (localStorage.getItem(PENDING_RESET) !== disk) return false; localStorage.removeItem(PENDING_RESET); return true; } catch { return false; }
 }
 
 /** Deletes the disk (the machine stopped); the next start unpacks a fresh Ubuntu. */

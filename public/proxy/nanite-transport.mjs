@@ -20,14 +20,18 @@ export default class NaniteTransport {
       const p = this.pending.get(data.id);
       if (!p) return;
       this.pending.delete(data.id);
-      if (data.error) p.reject(new Error(data.error)); else p.resolve(data);
+      if (data.error) p.reject(new Error(`Nanite: ${data.error}`)); else p.resolve(data);
     };
   }
   async init() { await this.web.init(); this.ready = true; }
   meta() { return {}; }
 
   async request(remote, method, body, headers, signal) {
-    if (!VM.test(remote.hostname)) return this.web.request(remote, method, body, headers, signal);
+    // Errors carry where they came from (the Web Browser's error page shows it): "libcurl (Wisp):" for the web, "Nanite:" for the machine.
+    if (!VM.test(remote.hostname)) {
+      try { return await this.web.request(remote, method, body, headers, signal); }
+      catch (e) { if (e?.name === "AbortError") throw e; throw new Error(`libcurl (Wisp): ${e?.message ?? e}`); }
+    }
     const bytes = body == null ? null : await new Response(body).arrayBuffer();
     const id = ++this.seq, list = [];
     for (const [k, v] of Object.entries(headers ?? {})) for (const one of [].concat(v)) list.push([k, String(one)]);

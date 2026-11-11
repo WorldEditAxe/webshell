@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
-/* Afterglow with a slight sakura tint (the terminal's own colours are in lib/term.ts). */
+/* The default theme's colours (Gruvbox; lib/themes.ts sets the chosen theme's at start). */
 @theme {
-  --color-bar: #141114;
-  --color-bg: #221d21;
-  --color-panel: #1a1619;
-  --color-raised: #2b2429;
-  --color-line: #4a3442;
-  --color-fg: #d6cfd3;
-  --color-muted: #7a6c75;
-  --color-sakura: #f2b5c8;
-  --color-blossom: #b0798f;
-  --color-danger: #cc5a64;
+  --color-bar: #161819;
+  --color-bg: #282828;
+  --color-panel: #1d2021;
+  --color-raised: #3c3836;
+  --color-line: #504945;
+  --color-fg: #ebdbb2;
+  --color-muted: #928374;
+  --color-sakura: #fabd2f;
+  --color-blossom: #d79921;
+  --color-danger: #fb4934;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 

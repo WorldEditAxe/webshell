@@ -7,8 +7,8 @@
   "scope": "./",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#221d21",
-  "theme_color": "#141114",
+  "background_color": "#282828",
+  "theme_color": "#161819",
   "categories": ["developer", "utilities"],
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

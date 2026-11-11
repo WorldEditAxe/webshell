@@ -6,7 +6,7 @@
   import { onDestroy } from "svelte";
   import { ArrowLeft, ArrowRight, RotateCw, X, Globe, ExternalLink, LoaderCircle, Wrench, ChevronDown, Check, ZoomIn, ZoomOut } from "@lucide/svelte";
   import CertViewer from "./CertViewer.svelte";
-  import { proxy, previewSupported, attachDevtools, DEVTOOLS, ERUDA_DOC, type Devtools } from "./preview";
+  import { proxy, previewSupported, attachDevtools, sidebarChanged, DEVTOOLS, ERUDA_DOC, type Devtools } from "./preview";
 
   let { active, ontitle }: { active: boolean; ontitle: (title: string) => void } = $props();
 
@@ -104,8 +104,10 @@
   }
   function loaded(): void {
     loading = false; sync(); hookKeys();
-    if (devtools && backend && frame && side) attachDevtools(frame, side, backend);
+    if (devtools && backend && frame) attachDevtools(frame, () => side, backend);
   }
+  // A new sidebar frame (the devtools turned on, or switched): it shows the front end the page's Chii already opened.
+  $effect(() => { if (side && backend === "chii") sidebarChanged(frame); });
   $effect(() => {
     if (!active || !url) return;
     const t = setInterval(sync, 700);

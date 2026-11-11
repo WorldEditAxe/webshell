@@ -6,15 +6,18 @@
   import { LoaderCircle } from "@lucide/svelte";
   import { GuestFiles } from "./files";
   import * as M from "./machine";
+  import { proxiedUrl, unproxiedUrl } from "./preview";
 
   type Pty = (argv: string[], env: string[], size: { cols: number; rows: number }, sink: (b: Uint8Array) => void, onExit?: () => void) => Promise<number>;
-  let { nv, sh, active, openPty, closePty, fileServer, info, onstorage }: {
+  let { nv, sh, active, openPty, closePty, fileServer, info, onstorage, codeMode = false, ondisablemode }: {
     nv: M.Nanite; sh: M.Shells; active: boolean; openPty: Pty; closePty: (termId: number) => void;
     fileServer: { acquire(): Promise<void>; release(): void };
     /** What the remote indicator shows: the root's name and the machine's memory. */
     info: () => { root: string; memory: number };
     /** Opens the page's Storage settings (switching roots). */
     onstorage: () => void;
+    /** VS Code mode: this VS Code is the whole page (the extension then offers to leave it), and how to leave it. */
+    codeMode?: boolean; ondisablemode?: () => void;
   } = $props();
 
   const machine = untrack(() => nv);   // one machine per mount: the tab closes with it
@@ -65,9 +68,14 @@
       case "ptyResize": machine.resize(m.cols as number, m.rows as number, m.pty as number); return null;
       case "ptyClose": ptys.delete(m.pty as number); closePty(m.pty as number); return null;
       // The remote menu (public/vscode/nanite/extension.js).
-      case "info": return info();
+      case "info": return { ...info(), codeMode };
+      // After the answer is sent: leaving VS Code mode unmounts this view (and closes the channel).
+      case "disableCodeMode": setTimeout(() => ondisablemode?.()); return null;
       case "openFolder": folder = (m.path as string) || "/root"; src = url(); return null;
       case "storage": onstorage(); return null;
+      // The Simple Browser's address for a URL: through the Web Browser tab's proxy (the machine's ports and the web).
+      case "proxiedUrl": return proxiedUrl(String(m.url ?? ""));
+      case "unproxiedUrl": return unproxiedUrl(String(m.url ?? ""));
     }
     throw new Error(`unknown call ${m.op}`);
   }
