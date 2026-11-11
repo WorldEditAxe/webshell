@@ -2,7 +2,7 @@
 // tools/build-cf.mjs: assembles cf-dist/, the static assets for Cloudflare Workers (wrangler.jsonc, cf/worker.js), from dist/
 // (npm run build) and public/. Files are hard-linked, not copied. Each FragmentedFS blob goes up once: as blobs/ID.gz where
 // tools/tar-to-ffs.mjs made a gzip copy (blobs.gz/ID), else as blobs/ID; the Worker serves both at blobs/ID.
-import { readdirSync, statSync, mkdirSync, rmSync, linkSync, copyFileSync, writeFileSync } from "node:fs";
+import { existsSync as exists, readdirSync, statSync, mkdirSync, rmSync, linkSync, copyFileSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, sep } from "node:path";
 const here = join(dirname(new URL(import.meta.url).pathname), "..");
 const out = join(here, "cf-dist"), LIMIT = 20000, MAX = 25 * 1024 * 1024;
@@ -19,15 +19,15 @@ function walk(root, dir = root) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name), rel = relative(root, p), parts = rel.split(sep);
     if (statSync(p).isDirectory()) {
-      if (parts.at(-1) === "blobs.gz") continue;          // taken with blobs/ below
+      if (parts.at(-1) === "blobs.gz") { if (!exists(join(dirname(p), "blobs"))) blobs(join(dirname(p), "blobs"), join(dirname(rel), "blobs")); continue; }   // a git checkout: no blobs/
       if (parts.at(-1) === "blobs" && parts.at(-2)?.endsWith(".ffs")) { blobs(p, rel); continue; }
       walk(root, p);
     } else put(p, rel);
   }
 }
 function blobs(dir, rel) {
-  const gzdir = join(dirname(dir), "blobs.gz");
-  for (const id of readdirSync(dir)) {
+  const gzdir = join(dirname(dir), "blobs.gz"), list = (d) => { try { return readdirSync(d); } catch { return []; } };
+  for (const id of new Set([...list(dir), ...list(gzdir)])) {
     const gz = join(gzdir, id);
     let has = false; try { has = statSync(gz).isFile(); } catch {}
     if (has) put(gz, join(rel, `${id}.gz`)); else put(join(dir, id), join(rel, id));

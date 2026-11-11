@@ -113,15 +113,15 @@ const packed = await packMetadata(nodeDirectoryFragmentStore(out));
 for (const [i, seg] of packed.segments.entries()) await writeFile(join(out, metadataSegmentName(i)), seg);
 await rm(join(out, "metadata"), { recursive: true, force: true });
 await writeFile(join(out, "hardlinks.json"), JSON.stringify(hardlinks));
-// A gzip copy of each blob that compresses, in <store>/blobs.gz/<id> (beside blobs/, which FragmentedFS keeps to itself), which
-// server.mjs sends to browsers that take gzip.
+// A gzip copy of every blob, in <store>/blobs.gz/<id> (beside blobs/, which FragmentedFS keeps to itself): server.mjs and the
+// Cloudflare Worker send it to browsers that take gzip, and it is what git keeps (blobs/ is ignored) and Cloudflare serves.
 const ids = await readdir(join(out, "blobs"));
 await mkdir(join(out, "blobs.gz"), { recursive: true });
 let raw = 0, sent = 0;
 for (const id of ids) {
   const b = await readFile(join(out, "blobs", id)), z = gzipSync(b, { level: constants.Z_BEST_COMPRESSION });
   raw += b.length;
-  if (z.length < b.length * 0.9) { await writeFile(join(out, "blobs.gz", id), z); sent += z.length; } else sent += b.length;
+  await writeFile(join(out, "blobs.gz", id), z); sent += Math.min(z.length, b.length);
 }
 console.log(`gzip: ${(raw / 1e6).toFixed(1)} MB of blobs travel as ${(sent / 1e6).toFixed(1)} MB`);
 for (let i = 0; i < packed.segments.length; i++) sent += packed.segments[i].length;

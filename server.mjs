@@ -2,6 +2,7 @@
 // root filesystems from Docker images on request (/api/docker, below).
 import http from "node:http";
 import fs from "node:fs";
+import zlib from "node:zlib";
 import path from "node:path";
 import { spawn } from "node:child_process";
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -101,6 +102,16 @@ http.createServer((req, res) => {
   for (const root of ROOTS) {
     const f = path.join(root, path.normalize(p));
     if (!f.startsWith(root + path.sep)) continue;
+    // A root's blob from a git checkout: only blobs.gz/ is kept, so it is sent from there (inflated for a client without gzip).
+    if (/^\/roots\/[^/]+\.ffs\/blobs\/[0-9a-f]+$/.test(p) && !fs.existsSync(f)) {
+      const gz = path.join(path.dirname(path.dirname(f)), "blobs.gz", path.basename(f));
+      if (!fs.existsSync(gz)) continue;
+      const head = { "Content-Type": "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable", "Vary": "Accept-Encoding" };
+      if (/\bgzip\b/.test(req.headers["accept-encoding"] ?? "")) { sendFile(req, res, gz, fs.statSync(gz), true, { ...head, "Content-Encoding": "gzip" }); return; }
+      res.writeHead(200, head);
+      if (req.method === "HEAD") res.end(); else fs.createReadStream(gz).pipe(zlib.createGunzip()).pipe(res);
+      return;
+    }
     let st; try { st = fs.statSync(f); } catch { continue; }
     // A root's FragmentedFS blobs (tools/tar-to-ffs.mjs) never change; most have a gzip copy in blobs.gz/, sent compressed to
     // a browser that takes gzip (fetch inflates it before the page checks the blob's SHA-256).

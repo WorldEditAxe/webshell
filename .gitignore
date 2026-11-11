@@ -5,8 +5,9 @@ node_modules/
 /dist/
 cf-dist/
 
-# Generated root filesystems (tools/make-root.sh) and their exported tarballs
-public/roots/*.ffs/
+# Root filesystems (tools/make-root.sh): FragmentedFS stores. Git keeps each one's metadata and blobs.gz/ (a gzip copy of
+# every blob, what Cloudflare serves); blobs/, the raw copies, stay local.
+public/roots/*.ffs/blobs/
 public/roots/*.ffs.part/
 cache/
 
