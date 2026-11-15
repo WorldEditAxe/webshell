@@ -9,4 +9,5 @@ import App from "./App.svelte";
 await Promise.all([document.fonts.load('13px "JetBrains Mono"'), document.fonts.load('bold 13px "JetBrains Mono"')]).catch(() => {});
 mount(App, { target: document.getElementById("app")! });
 // Offline: public/sw.js caches the app, Nanite, the root images and VS Code as they are used. Not in Vite's dev server.
-if ("serviceWorker" in navigator && !import.meta.env.DEV) navigator.serviceWorker.register("./sw.js").catch((e) => console.warn("service worker:", e));
+// The single-file build has no files beside it, so no service worker.
+if ("serviceWorker" in navigator && !import.meta.env.DEV && !__SINGLE__) navigator.serviceWorker.register("./sw.js").catch((e) => console.warn("service worker:", e));

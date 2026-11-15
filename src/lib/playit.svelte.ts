@@ -12,6 +12,7 @@
 //   UDP        SetupUdpChannel -> UdpChannelDetails (address, token); the token sent there opens the channel (re-sent every 10 s).
 //              Datagrams carry a footer (visitor and public addresses, tunnel id) at their end; replies carry the flipped footer.
 //   tunnels    made on playit.gg (TCP / UDP / both, local port, PROXY protocol); the page reads them from /v1/agents/rundata.
+import { SINGLE, libcurlUrl } from "./single";
 import { WispConn, type WispStream } from "./wisp";
 import { joinGuest, proxyHeader, type Addr, type Net } from "./tunnels.svelte";
 import type { UdpSocket } from "./machine";
@@ -92,9 +93,13 @@ function curlFor(relay: string): Promise<Curl> {
   if (curl && curlRelay === relay) return curl;
   curlRelay = relay;
   return (curl = (async () => {
-    const mod = await import(/* @vite-ignore */ new URL("proxy/libcurl.mjs", document.baseURI).href) as { default: new (o: { wisp: string }) => Curl };
+    // The single-file build has libcurl.js inside the page (lib/single.ts).
+    const mod = await import(/* @vite-ignore */ SINGLE ? await libcurlUrl() : new URL("proxy/libcurl.mjs", document.baseURI).href) as { default: new (o: { wisp: string }) => Curl };
     const c = new mod.default({ wisp: relay.endsWith("/") ? relay : relay + "/" });
-    await c.init();
+    // libcurl.js compiles its wasm (inside the module) after the import; init() before that throws "wasm not loaded yet".
+    for (let i = 0; ; i++) {
+      try { await c.init(); break; } catch (e) { if (i >= 100 || !/wasm not loaded/.test(String(e))) throw e; await new Promise((r) => setTimeout(r, 100)); }
+    }
     return c;
   })().catch((e) => { curl = null; throw e; }));
 }

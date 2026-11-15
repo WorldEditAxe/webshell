@@ -1,5 +1,6 @@
 // The machine: Ubuntu 26.04 on Nanite (x86-64 in WebAssembly, no kernel), from the Spark Linux package host; its network goes
 // out through the nearest of Spark Linux's Wisp relays. Also the ICMP bridge for ping, and the disk's save / load / reset.
+import { SINGLE, naniteUrls, hasOpfs } from "./single";
 import type { Launch } from "./settings";
 import { locate } from "./wisp";
 
@@ -168,10 +169,23 @@ self.addEventListener("message", (e) => {
 });
 `;
 const blobUrl = (code: string) => URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-let workerUrl: string | null = null;
+let workerUrl: Promise<string> | null = null;
 /** Nanite's worker, behind the reconnecting WebSocket (imports run in order: the WebSocket first, then Nanite's worker). */
-function naniteWorker(mod: NaniteModule): string {
-  return (workerUrl ??= blobUrl(`import ${JSON.stringify(blobUrl(WISP_RECONNECT))};\nimport ${JSON.stringify(mod.embeddedWorkerUrl())};\n`));
+function naniteWorker(mod: NaniteModule): Promise<string> {
+  return (workerUrl ??= SINGLE ? classicWorker(mod) : Promise.resolve(blobUrl(`import ${JSON.stringify(blobUrl(WISP_RECONNECT))};\nimport ${JSON.stringify(mod.embeddedWorkerUrl())};\n`)));
+}
+// The single-file build: a page opened from a file (file://) may not start a module worker from a blob: URL, only a classic one.
+// Nanite's worker is plain script (no import or export), so it runs as one classic script after the reconnecting WebSocket
+// (in a function of its own, so its names stay out of Nanite's), and Nanite's new Worker(url, { type: "module" }) is started
+// classic for this one URL.
+async function classicWorker(mod: NaniteModule): Promise<string> {
+  const nanite = await (await fetch(mod.embeddedWorkerUrl())).text();
+  const url = blobUrl(`(() => {${WISP_RECONNECT}})();\n${nanite}`);
+  const Real = globalThis.Worker;
+  globalThis.Worker = class extends Real {
+    constructor(u: string | URL, o?: WorkerOptions) { super(u, String(u) === url ? { ...o, type: "classic" } : o); }
+  };
+  return url;
 }
 
 /** What Nanite's worker holds: its WebAssembly memories (bytes each, largest first) and the modules it compiled. */
@@ -183,13 +197,17 @@ export function memReport(nv: Nanite): Promise<{ memories: number[]; modules: nu
   });
 }
 
-export const loadNanite = (pkg: string): Promise<NaniteModule> => import(/* @vite-ignore */ `${pkg}/lib/nanitevisor/nanite.js`);
+// The single-file build has Nanite inside the page (lib/single.ts), as blob: URLs.
+export const loadNanite = async (pkg: string): Promise<NaniteModule> =>
+  import(/* @vite-ignore */ SINGLE ? (await naniteUrls()).js : `${pkg}/lib/nanitevisor/nanite.js`);
 
-export function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen: { width: number; height: number }, disk: string, hooks: Hooks): Promise<Nanite> {
-  const lib = `${l.pkg}/lib/nanitevisor`;
+export async function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen: { width: number; height: number }, disk: string, hooks: Hooks): Promise<Nanite> {
+  const lib = `${l.pkg}/lib/nanitevisor`, u = SINGLE ? await naniteUrls() : null;
+  // No OPFS (a page opened from a file, file://): the root's disk in IndexedDB, which such a page may use, and Nanite's cache in memory.
+  if (!(await hasOpfs())) l = { ...l, rootStorage: "indexeddb", cacheBackend: "memory" };
   return mod.Nanite.create({
-    workerUrl: naniteWorker(mod),
-    naniteUrl: `${lib}/nanite.wasm`, vkernelUrl: `${lib}/vkernel.wasm`, tty: true, wisp,
+    workerUrl: await naniteWorker(mod),
+    naniteUrl: u?.wasm ?? `${lib}/nanite.wasm`, vkernelUrl: u?.vkernel ?? `${lib}/vkernel.wasm`, tty: true, wisp,
     devices: { fb: screen, sound: false, gpu: false },
     memoryLimit: l.memory * MiB, processMemoryLimit: (l.processMemory ?? Math.min(l.memory, 256)) * MiB,
     ...(l.dcache != null ? { dcacheBytes: l.dcache * MiB } : {}),
@@ -376,6 +394,11 @@ export function takeReset(disk: string): boolean {
 
 /** Deletes the disk (the machine stopped); the next start unpacks a fresh Ubuntu. */
 export async function deleteDisk(disk: string): Promise<void> {
+  // Without OPFS (a page opened from a file), Nanite keeps the disk in IndexedDB, in a database of the same name.
+  if (!(await hasOpfs())) return retry(() => new Promise<void>((resolve, reject) => {
+    const r = indexedDB.deleteDatabase(diskDir(disk));
+    r.onsuccess = () => resolve(); r.onerror = () => reject(r.error); r.onblocked = () => reject(new Error(`${disk} is still open`));
+  }));
   const root = await opfsRoot();
   await retry(() => root.removeEntry(diskDir(disk), { recursive: true }).catch((e) => { if (e.name !== "NotFoundError") throw e; }));
 }

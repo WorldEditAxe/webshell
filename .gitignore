@@ -1,9 +1,10 @@
 # Dependencies
 node_modules/
 
-# Build output (npm run build, npm run cf:build)
+# Build output (npm run build, npm run cf:build, npm run single)
 /dist/
 cf-dist/
+/single/
 
 # Root filesystems (tools/make-root.sh): FragmentedFS stores. Git keeps each one's metadata and blobs.gz/ (a gzip copy of
 # every blob, what Cloudflare serves); blobs/, the raw copies, stay local.

@@ -1,7 +1,10 @@
 // Root filesystems: the built-in images (public/roots, tools/make-root.sh: FragmentedFS stores, src/lib/ffsroot.ts), ones added in Storage (a Docker image the server
 // builds, a URL, or a .tar.gz from this computer), and which one the machine runs. Each root has its own disk (Nanite's
 // disk-backed root, OPFS directory nanite-root-<disk>), so switching keeps every root's changes.
-export type RootSource = { kind: "url"; url: string } | { kind: "ffs"; url: string } | { kind: "docker"; image: string } | { kind: "file"; name: string };
+import { single } from "./single";
+
+export type RootSource = { kind: "url"; url: string } | { kind: "ffs"; url: string } | { kind: "docker"; image: string } | { kind: "file"; name: string }
+  | { kind: "embedded" };   // the single-file build's root, inside the page (lib/single.ts)
 export interface Root {
   id: string;
   name: string;
@@ -17,7 +20,10 @@ export interface Root {
 }
 
 const local = (file: string) => new URL(`roots/${file}`, location.href).href;
-export const BUILTIN: Root[] = [
+// The single-file build has one built-in root: the minimal Alpine inside the page.
+export const BUILTIN: Root[] = single ? [
+  { id: "alpine-single", name: single.rootName, note: "minimal", icon: "alpine", disk: single.rootDisk, builtin: true, source: { kind: "embedded" } },
+] : [
   { id: "ubuntu-demo", name: "Ubuntu 26.04 LTS", note: "webshell", icon: "ubuntu", disk: "ubuntu-26.04-v4", builtin: true, demo: true,
     source: { kind: "ffs", url: local("ubuntu-26.04-x86_64.ffs/") } },
   { id: "ubuntu", name: "Ubuntu 26.04 LTS", note: "plain", icon: "ubuntu", disk: "ubuntu-26.04-plain", builtin: true,
@@ -34,7 +40,7 @@ export const custom = (): Root[] => read<Root[]>(KEY_ROOTS, []);
 export const all = (): Root[] => [...BUILTIN, ...custom()];
 export function current(): Root {
   const q = new URLSearchParams(location.search).get("root");
-  const id = q ?? read<string>(KEY_CURRENT, "ubuntu-demo");
+  const id = q ?? read<string>(KEY_CURRENT, BUILTIN[0]!.id);
   return all().find((r) => r.id === id) ?? BUILTIN[0]!;
 }
 export const select = (id: string) => write(KEY_CURRENT, id);
@@ -89,6 +95,7 @@ export async function docker(image: string, start: boolean): Promise<DockerStatu
 }
 /** Has the server build `image` into a root; resolves with its URL. */
 export async function dockerBuild(image: string, progress: (s: DockerStatus) => void): Promise<string> {
+  if (__SINGLE__) throw new Error("no Docker roots in the single-file build (they are built by the server)");
   let s = await docker(image, true);
   for (;;) {
     progress(s);

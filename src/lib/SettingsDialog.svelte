@@ -2,6 +2,7 @@
      and terminal options: they apply at once), Storage (the root filesystems: switch, add from a Docker image / URL / file,
      reset, delete). Short labels and icons; the explanations are in the tooltips. -->
 <script lang="ts">
+  import { SINGLE } from "./single";
   import DistroIcon from "./DistroIcon.svelte";
   import {
     X, Cpu, SquareTerminal, HardDrive, MemoryStick, Database, Monitor, Globe, Package, Type, MoveVertical, TextCursor, ScrollText,
@@ -125,7 +126,7 @@
   // ---- Storage ----
   let list = $state<(roots.Root & { size: number })[]>([]);
   let usage = $state({ usage: 0, quota: 0 });
-  let addKind = $state<"docker" | "url" | "file">("docker");
+  let addKind = $state<"docker" | "url" | "file">(SINGLE ? "url" : "docker");   // no server, so no Docker roots, in the single-file build
   let addValue = $state(""), adding = $state(""), addError = $state("");
   let fileInput = $state<HTMLInputElement>();
   async function refreshRoots(): Promise<void> {
@@ -606,7 +607,7 @@
           <div class="grid gap-2 rounded-2xl border border-dashed border-line p-3">
             <div class="flex items-center gap-1">
               <Plus size={14} class="mr-1 text-muted" />
-              <button type="button" class={seg(addKind === "docker")} title="Any image from Docker Hub, built into a root by the server" onclick={() => (addKind = "docker")}><Container size={13} />Docker</button>
+              {#if !SINGLE}<button type="button" class={seg(addKind === "docker")} title="Any image from Docker Hub, built into a root by the server" onclick={() => (addKind = "docker")}><Container size={13} />Docker</button>{/if}
               <button type="button" class={seg(addKind === "url")} title="A .tar.gz of a root filesystem on the web (it must allow CORS)" onclick={() => (addKind = "url")}><Link size={13} />URL</button>
               <button type="button" class={seg(addKind === "file")} title="A .tar.gz of a root filesystem from this computer" onclick={() => (addKind = "file")}><FileArchive size={13} />File</button>
             </div>

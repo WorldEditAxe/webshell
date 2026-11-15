@@ -7,7 +7,7 @@
   import { flip } from "svelte/animate";
   import { motion } from "./lib/motion";
   import {
-    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, RotateCcw, Code, Globe, Settings as SettingsIcon, Bell, Columns2, Rows2, MonitorUp,
+    Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, Download, RotateCcw, Code, Globe, Settings as SettingsIcon, Bell, Columns2, Rows2, MonitorUp,
     PanelTopClose, PanelTopOpen, WifiOff, RefreshCw, ExternalLink, GitBranch, MemoryStick, Maximize2, LoaderCircle,
   } from "@lucide/svelte";
   import TerminalView from "./lib/TerminalView.svelte";
@@ -24,6 +24,7 @@
   import * as roots from "./lib/roots";
   import { theme, applyTheme } from "./lib/themes";
   import { ffsTar, forgetFfsCache } from "./lib/ffsroot";
+  import { SINGLE, single, rootTar, hasOpfs } from "./lib/single";
   import { ask } from "./lib/ask.svelte";
   import { FSD, GuestFiles } from "./lib/files";
   import { Tunnels } from "./lib/tunnels.svelte";
@@ -103,6 +104,8 @@
   // VS Code mode: the page is one VS Code on the machine, full window (the ☰ menu turns it on; VS Code's dialog or its
   // command "Nanite: Disable VS Code Mode" turns it off). Remembered across visits.
   const CODE_MODE_KEY = "nanite-webshell:vscode-mode";
+  let opfs = $state(true);
+  void hasOpfs().then((v) => (opfs = v));
   let codeMode = $state((() => { try { return localStorage.getItem(CODE_MODE_KEY) === "1"; } catch { return false; } })());
   let bootError = $state("");
   function setCodeMode(on: boolean): void {
@@ -222,7 +225,7 @@
   }
   // Preview tabs (lib/PreviewView.svelte, on Scramjet): the machine's web servers and the web, through this machine and its Wisp relay.
   let previewCount = 0;
-  servePreviews(() => nv ?? null, () => (w.wisp as { url?: string } | undefined)?.url ?? null);
+  if (!SINGLE) servePreviews(() => nv ?? null, () => (w.wisp as { url?: string } | undefined)?.url ?? null);   // no Web Browser in the single-file build
   // For VS Code (its page is this origin, in a frame of this page): the proxied address of a URL (lib/preview.ts).
   w.naniteProxiedUrl = proxiedUrl;
   w.naniteUnproxiedUrl = unproxiedUrl;
@@ -517,6 +520,7 @@
   /** The root's image as a tar stream: a FragmentedFS store (built-in roots) or a .tar.gz (the first start of a root unpacks it onto its disk). */
   async function image(onBuild: (state: string) => void): Promise<{ body: ReadableStream<Uint8Array>; total: number; gz: boolean; scale?: number }> {
     const src = root.source;
+    if (src.kind === "embedded") return { body: rootTar(), total: single!.rootBytes, gz: false };
     if (src.kind === "file") { const f = await roots.loadSource(root.id); return { body: f.stream(), total: f.size, gz: true }; }
     if (src.kind === "ffs") { const t = await ffsTar(src.url); return { body: t.body, total: t.total, gz: false, scale: t.download / t.total }; }
     const url = src.kind === "docker" ? await roots.dockerBuild(src.image, (s) => onBuild(s.state)) : src.url;
@@ -669,14 +673,24 @@
         title="Menu" aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}><Menu size={16} /></button>
       {#if menuOpen}
         <div role="menu" transition:fly={{ y: -6, duration: motion(140) }} class="absolute top-full right-0 z-20 mt-2 w-52 rounded-3xl border border-line bg-panel p-1.5 shadow-xl shadow-black/50">
+          <!-- Save and Load pack the disk's OPFS folder: not from a file (file://), where Nanite keeps the disk in IndexedDB. -->
+          {#if opfs}
           <button role="menuitem" class={item} title="Download this root's disk as a .tar.gz" onclick={() => { menuOpen = false; void saveDisk(); }}><Save size={14} />Save disk</button>
           <button role="menuitem" class={item} title="Replace this root's disk with a saved .tar.gz" onclick={() => { menuOpen = false; fileInput.click(); }}><FolderOpen size={14} />Load disk</button>
+          {/if}
           <button role="menuitem" class="{item} hover:!bg-danger/15 hover:!text-danger" title="Delete this root's disk and start fresh" onclick={() => { menuOpen = false; void resetDisk(); }}><RotateCcw size={14} />Reset</button>
           <div class={sep}></div>
+          {#if !SINGLE}
           <button role="menuitem" class={item} disabled={booted && !hasPerl} title={booted && !hasPerl ? "Needs Perl on this root (VS Code's file server)" : "The whole window is VS Code on this machine (until you disable it)"}
             onclick={() => setCodeMode(true)}><Maximize2 size={14} />VS Code mode</button>
+          {/if}
           <button role="menuitem" class={item} title="Nanite, Network, Terminal and Storage" onclick={() => openSettings(settingsTab)}><SettingsIcon size={14} />Settings<span class="ml-auto truncate text-[10px] text-muted">{root.name}</span></button>
           <div class={sep}></div>
+          <!-- The single-file build (tools/build-single.mjs), served beside the page: the webshell in one HTML file that runs from disk. -->
+          {#if !SINGLE}
+          <a role="menuitem" class={item} href="nanite-webshell.html" download="nanite-webshell.html" title="The webshell in one HTML file (about 10 MB) with a minimal Alpine: open it from disk, no server needed (the internet still goes through the Wisp relay)"
+            onclick={() => (menuOpen = false)}><Download size={14} />Offline HTML</a>
+          {/if}
           <a role="menuitem" class={item} href="https://github.com/WorldEditAxe/webshell" target="_blank" rel="noopener" title="The source on GitHub (opens in a new tab)"
             onclick={() => (menuOpen = false)}><GitBranch size={14} />GitHub<ExternalLink size={12} class="ml-auto text-muted" aria-label="opens in a new tab" /></a>
         </div>
@@ -688,8 +702,11 @@
   {#if plusOpen}
     <div role="menu" data-plus transition:fly={{ y: -6, duration: motion(140) }} class="fixed z-30 w-48 rounded-3xl border border-line bg-panel p-1.5 shadow-xl shadow-black/50" style="left: {plusX}px; top: 46px">
       <button role="menuitem" class={item} onclick={() => newTab()}><TerminalIcon size={14} />Terminal</button>
+      <!-- VS Code and the Web Browser need files beside the page: not in the single-file build. -->
+      {#if !SINGLE}
       <button role="menuitem" class={item} disabled={!hasPerl} title={hasPerl ? "VS Code on this machine" : "Needs Perl on this root (its file server)"} onclick={openCode}><Code size={14} />VS Code</button>
       <button role="menuitem" class={item} title="Web sites, and web servers in the machine (localhost:PORT)" onclick={openPreview}><Globe size={14} />Web Browser</button>
+      {/if}
       {#if !monitorOpen}<button role="menuitem" class={item} onclick={openMonitor}><Monitor size={14} />Display</button>{/if}
     </div>
   {/if}
