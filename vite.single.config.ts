@@ -23,6 +23,8 @@ export default defineConfig({
       return stub ? resolve("src/single", stub) : null;
     },
     load: (id) => (id === "\0virtual:single" ? `export default ${readFileSync("cache/single/assets.json", "utf8")};` : null),
+    // Fonts: only the .woff2 copies (every browser that runs Nanite reads them); the .woff fallbacks would add ~0.1 MB.
+    transform: (code, id) => (/@fontsource\/.*\.css$/.test(id) ? code.replace(/,\s*url\([^)]*\.woff\)\s*format\(['"]woff['"]\)/g, "") : null),
     // No files beside the page: the icon inline, no manifest (the installable app needs the server's files).
     transformIndexHtml: (html) => html
       .replace(/<link rel="icon"[^>]*\.png"[^>]*>\n?/, "").replace(/<link rel="(apple-touch-icon|manifest)"[^>]*>\n?/g, "")

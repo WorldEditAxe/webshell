@@ -201,7 +201,8 @@ export function memReport(nv: Nanite): Promise<{ memories: number[]; modules: nu
 export const loadNanite = async (pkg: string): Promise<NaniteModule> =>
   import(/* @vite-ignore */ SINGLE ? (await naniteUrls()).js : `${pkg}/lib/nanitevisor/nanite.js`);
 
-export async function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen: { width: number; height: number }, disk: string, hooks: Hooks): Promise<Nanite> {
+/** `mounts`: Nanite's mounts, e.g. a folder on this computer (lib/folder.ts). */
+export async function createMachine(mod: NaniteModule, l: Launch, wisp: string, screen: { width: number; height: number }, disk: string, hooks: Hooks, mounts: object[] = []): Promise<Nanite> {
   const lib = `${l.pkg}/lib/nanitevisor`, u = SINGLE ? await naniteUrls() : null;
   // No OPFS (a page opened from a file, file://): the root's disk in IndexedDB, which such a page may use, and Nanite's cache in memory.
   if (!(await hasOpfs())) l = { ...l, rootStorage: "indexeddb", cacheBackend: "memory" };
@@ -215,7 +216,7 @@ export async function createMachine(mod: NaniteModule, l: Launch, wisp: string, 
     oomKiller: l.oomKiller ?? true, singleMemory: l.memoryMode === "single",
     ...(l.memoryMode === "single" && l.slotSize ? { slotSize: l.slotSize * MiB } : {}),
     cacheBackend: l.cacheBackend ?? "disk", rootStorage: l.rootStorage ?? "disk", prewarm: l.prewarm ?? true, jspi: l.jspi ?? true,
-    rootName: disk, ...hooks,
+    rootName: disk, mounts, ...hooks,
   });
 }
 

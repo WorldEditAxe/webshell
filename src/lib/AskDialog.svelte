@@ -28,7 +28,7 @@
         </span>
         <div class="grid min-w-0 gap-1 pt-1">
           <h2 class="text-sm font-bold">{cur.title}</h2>
-          {#if cur.message}<p class="text-xs leading-relaxed text-muted">{cur.message}</p>{/if}
+          {#if cur.message}<p class="text-xs leading-relaxed whitespace-pre-line text-muted">{cur.message}</p>{/if}
         </div>
       </div>
       {#if cur.input !== undefined}

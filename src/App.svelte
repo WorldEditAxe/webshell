@@ -8,7 +8,7 @@
   import { motion } from "./lib/motion";
   import {
     Terminal as TerminalIcon, Monitor, Plus, X, Menu, Save, FolderOpen, Download, RotateCcw, Code, Globe, Settings as SettingsIcon, Bell, Columns2, Rows2, MonitorUp,
-    PanelTopClose, PanelTopOpen, WifiOff, RefreshCw, ExternalLink, GitBranch, MemoryStick, Maximize2, LoaderCircle,
+    PanelTopClose, PanelTopOpen, WifiOff, HardDrive, FolderSync, FolderX, RefreshCw, ExternalLink, GitBranch, MemoryStick, Maximize2, LoaderCircle,
   } from "@lucide/svelte";
   import TerminalView from "./lib/TerminalView.svelte";
   import MonitorView from "./lib/MonitorView.svelte";
@@ -25,6 +25,7 @@
   import { theme, applyTheme } from "./lib/themes";
   import { ffsTar, forgetFfsCache } from "./lib/ffsroot";
   import { SINGLE, single, rootTar, hasOpfs } from "./lib/single";
+  import * as F from "./lib/folder";
   import { ask } from "./lib/ask.svelte";
   import { FSD, GuestFiles } from "./lib/files";
   import { Tunnels } from "./lib/tunnels.svelte";
@@ -106,6 +107,41 @@
   const CODE_MODE_KEY = "nanite-webshell:vscode-mode";
   let opfs = $state(true);
   void hasOpfs().then((v) => (opfs = v));
+  // A folder on this computer at ~/disk (lib/folder.ts, Nanite's "dir" mount), chosen in the menu. Opened from a file (the
+  // Offline HTML, file://), the machine's own disk is in the browser's storage (Chrome gives such a page no OPFS), which clearing
+  // the browser's data deletes: there the top bar's "browser storage" pill and, once, a dialog suggest choosing a folder.
+  let folder = $state<{ name: string; mounted: boolean } | null>(null);   // this root's folder, and whether the machine has it
+  const DISK_NOTE_KEY = "nanite-webshell:disk-note";   // "seen": the dialog opened once; "done": no more suggesting
+  let diskNote = $state((() => { try { return localStorage.getItem(DISK_NOTE_KEY) !== "done"; } catch { return true; } })());
+  const noteDone = () => { diskNote = false; try { localStorage.setItem(DISK_NOTE_KEY, "done"); } catch {} };
+  async function chooseFolder(): Promise<void> {
+    menuOpen = false;
+    let h: FileSystemDirectoryHandle;
+    try { h = await F.pickFolder(); } catch { return; }   // cancelled
+    await F.saveFolder(root.disk, h); noteDone();
+    void restart(`restarting with the folder ${h.name} at ~/disk`);
+  }
+  async function forgetFolder(): Promise<void> {
+    menuOpen = false;
+    if (!(await ask({ title: "Forget the folder?", message: `The machine no longer has ${folder?.name ?? "it"} at ~/disk. The folder and its files stay on this computer.`, confirm: "Forget" }))) return;
+    await F.saveFolder(root.disk, null);
+    void restart("restarting without the folder");
+  }
+  async function reconnectFolder(): Promise<void> {
+    const h = await F.savedFolder(root.disk);
+    if (h && (await F.permission(h, true)) === "granted") void restart(`restarting with the folder ${h.name} at ~/disk`);
+  }
+  async function suggestFolder(): Promise<void> {
+    const ok = await ask({
+      title: "Keep your files in a folder on this computer",
+      message: "Opened from a file, this page keeps the machine's files in the browser's storage, which clearing the browser's " +
+        "data deletes.\n\nChoose a folder on this computer and the machine has it at ~/disk: what you put there is written to " +
+        "the folder as you work, and it is there again on your next visit.\n\nThe folder is also held in the machine's memory: " +
+        "keep your files there, not big downloads.",
+      confirm: "Choose folder", cancel: "Not now",
+    });
+    if (ok) await chooseFolder();
+  }
   let codeMode = $state((() => { try { return localStorage.getItem(CODE_MODE_KEY) === "1"; } catch { return false; } })());
   let bootError = $state("");
   function setCodeMode(on: boolean): void {
@@ -558,8 +594,18 @@
       const hooks: M.Hooks = { onOutput, onMemoryEvent, onFrame: (fw, fh, px) => monitor?.frame(fw, fh, px), onTerminalExit };
       // The screen: the size from the settings, or else the monitor tab's.
       screen = launch.screenWidth && launch.screenHeight ? { width: launch.screenWidth, height: launch.screenHeight } : monitor!.areaSize();
+      // This root's folder at ~/disk, when one was chosen and may be written (on a later visit the browser asks again).
+      const mounts: object[] = [];
+      const fh = F.folderSupported() ? await F.savedFolder(root.disk) : null;
+      if (fh) {
+        let p = await F.permission(fh);
+        if (p === "prompt" && await ask({ title: `Reconnect the folder ${fh.name}?`, message: "The machine has it at ~/disk. The browser asks again for permission to write to it.", confirm: "Reconnect", cancel: "Not now" }))
+          p = await F.permission(fh, true);
+        if (p === "granted") mounts.push(F.folderMount(fh));
+        folder = { name: fh.name, mounted: p === "granted" };
+      }
       const start = async () => {
-        nv = await M.createMachine(mod, $state.snapshot(launch), wisp.url, { width: screen.width, height: screen.height }, root.disk, hooks); w.nv = nv; w.memReport = () => M.memReport(nv!);
+        nv = await M.createMachine(mod, $state.snapshot(launch), wisp.url, { width: screen.width, height: screen.height }, root.disk, hooks, mounts); w.nv = nv; w.memReport = () => M.memReport(nv!);
         nv.worker.addEventListener("message", (e) => { if (e.data?.ev === "wisp") wispDown = e.data.state === "down"; });
         return nv;
       };
@@ -601,6 +647,11 @@
       tunnels.startAll();
       if (playit.hasSecret) void playit.start();
       await shell();
+      if (!(await hasOpfs()) && diskNote && !folder && F.folderSupported()) {
+        let seen = false;
+        try { seen = localStorage.getItem(DISK_NOTE_KEY) === "seen"; localStorage.setItem(DISK_NOTE_KEY, "seen"); } catch {}
+        if (!seen) void suggestFolder();
+      }
     } catch (e) {
       t.write(`\r\n${C.red}error:${C.off} ${(e as Error)?.message ?? e}\r\n`);
       bootError = (e as Error)?.message ?? String(e);
@@ -662,6 +713,10 @@
     </div>
 
     {#if wispDown}<span transition:fly={{ x: 8, duration: motion(160) }} class="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 text-[11px] text-sakura" title="The network (Wisp) dropped: reconnecting. Connections open at the drop were closed."><RefreshCw size={13} class="animate-spin" />reconnecting</span>{/if}
+    {#if folder && !folder.mounted}<button transition:fly={{ x: 8, duration: motion(160) }} class="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 text-[11px] text-sakura hover:bg-sakura/15"
+      title="The folder {folder.name} is not at ~/disk: the browser needs your permission to write to it" onclick={reconnectFolder}><FolderSync size={13} />reconnect {folder.name}</button>
+    {:else if !opfs && !folder && diskNote && F.folderSupported()}<button transition:fly={{ x: 8, duration: motion(160) }} class="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 text-[11px] text-sakura hover:bg-sakura/15"
+      title="Files are kept in the browser's storage: keep yours in a folder on this computer" onclick={suggestFolder}><HardDrive size={13} />browser storage</button>{/if}
     {#if !online}<span transition:fly={{ x: 8, duration: motion(160) }} class="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 text-[11px] text-muted" title="Offline: the app runs from its cache; the machine has no network"><WifiOff size={13} />offline</span>{/if}
     <button class={iconBtn} title="Split right: a new terminal beside this pane (or drag a tab onto a pane's edge)" disabled={!booted} onclick={() => splitPane("right")}><Columns2 size={15} /></button>
     <button class={iconBtn} title="Split down: a new terminal below this pane" disabled={!booted} onclick={() => splitPane("bottom")}><Rows2 size={15} /></button>
@@ -677,6 +732,11 @@
           {#if opfs}
           <button role="menuitem" class={item} title="Download this root's disk as a .tar.gz" onclick={() => { menuOpen = false; void saveDisk(); }}><Save size={14} />Save disk</button>
           <button role="menuitem" class={item} title="Replace this root's disk with a saved .tar.gz" onclick={() => { menuOpen = false; fileInput.click(); }}><FolderOpen size={14} />Load disk</button>
+          {/if}
+          {#if F.folderSupported()}
+          <button role="menuitem" class={item} title="A folder on this computer in the machine, at ~/disk (changes are written to it)" onclick={chooseFolder}>
+            <FolderSync size={14} />{folder ? "Change folder" : "Choose folder"}{#if folder}<span class="ml-auto truncate text-[10px] text-muted">{folder.name}</span>{/if}</button>
+          {#if folder}<button role="menuitem" class={item} title="No folder at ~/disk (the folder stays on this computer)" onclick={forgetFolder}><FolderX size={14} />Forget folder</button>{/if}
           {/if}
           <button role="menuitem" class="{item} hover:!bg-danger/15 hover:!text-danger" title="Delete this root's disk and start fresh" onclick={() => { menuOpen = false; void resetDisk(); }}><RotateCcw size={14} />Reset</button>
           <div class={sep}></div>
